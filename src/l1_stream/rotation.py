@@ -32,6 +32,7 @@ from __future__ import annotations
 import logging
 from collections import deque
 from typing import Deque, Iterable, List, Optional, Sequence
+import time
 
 import numpy as np
 
@@ -161,6 +162,9 @@ class RotatedScanAccumulator:
         self.scans_accumulated = 0
         self.scans_unmatched = 0
         self.points_accumulated = 0
+        self._last_perf_time = time.perf_counter()
+        self._points_since_perf = 0
+        self._points_per_second = 0
 
     # --- ingestion ---
 
@@ -224,9 +228,19 @@ class RotatedScanAccumulator:
                 continue
 
             self._rotated.append(rotate_points(xyz, match.quaternion))
-            self.points_accumulated += len(xyz)
+
+            num_points = len(xyz)
+            self.points_accumulated += num_points
+            self._points_since_perf += num_points
             self.scans_accumulated += 1
             added += 1
+
+            now = time.perf_counter()
+            elapsed = now - self._last_perf_time
+            if elapsed >= 1.0:
+                self._points_per_second = self._points_since_perf / elapsed
+                self._points_since_perf = 0
+                self._last_perf_time = now
 
         self._pending = deque(still_pending, maxlen=self._pending.maxlen)
         if added:
@@ -274,6 +288,7 @@ class RotatedScanAccumulator:
             "scans_unmatched": self.scans_unmatched,
             "points_accumulated": self.points_accumulated,
             "points_held": len(self.get_points()),
+            "points_per_second": self._points_per_second,
         }
 
     def __len__(self) -> int:
