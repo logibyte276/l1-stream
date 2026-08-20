@@ -237,7 +237,7 @@ class RotatedScanAccumulator:
 
             now = time.perf_counter()
             elapsed = now - self._last_perf_time
-            if elapsed >= 1.0:
+            if elapsed >= 0.25:
                 self._points_per_second = round(self._points_since_perf / elapsed)
                 self._points_since_perf = 0
                 self._last_perf_time = now
