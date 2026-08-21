@@ -290,7 +290,7 @@ class LiveVisualizer:
         fps = self._frames / max(now - self._last_stats_at, 1e-9)
         self._frames = 0
         logger.info(
-            "%.1f fps | %d pts/s | on-screen %d pts (%d scans) | pending %d | unmatched %d | "
+            "%.1f fps | %.2f pts/s | on-screen %d pts (%d scans) | pending %d | unmatched %d | "
             "scans rx %d drop %d | imu rx %d drop %d",
             fps, acc["points_per_second"], acc["points_held"], acc["scans_held"], acc["scans_pending"],
             acc["scans_unmatched"], stream["scans_total"], stream["scans_dropped"],
