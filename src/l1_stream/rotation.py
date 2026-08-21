@@ -30,9 +30,10 @@ level, that is the first thing to check.
 from __future__ import annotations
 
 import logging
-from collections import deque
-from typing import Deque, Iterable, List, Optional, Sequence
 import time
+from collections import deque
+from itertools import count
+from typing import Deque, Iterable, List, Optional, Sequence, Tuple
 
 import numpy as np
 
@@ -144,16 +145,23 @@ class RotatedScanAccumulator:
         max_time_gap: float = 0.01,
         pending_maxlen: Optional[int] = None,
         drop_zero_returns: bool = True,
+        rate_window: float = 1.0,
     ):
         if max_scans < 1:
             raise ValueError("max_scans must be >= 1")
         if max_time_gap <= 0:
             raise ValueError("max_time_gap must be > 0")
+        if rate_window <= 0:
+            raise ValueError("rate_window must be > 0")
 
         self.max_time_gap = float(max_time_gap)
         self.drop_zero_returns = drop_zero_returns
 
-        self._rotated: Deque[np.ndarray] = deque(maxlen=max_scans)
+        # Entries are (stamp, seq, points), kept sorted by (stamp, seq).
+        # The seq counter is a tiebreaker so tuple comparison never falls
+        # through to comparing numpy arrays, which raises on ambiguous truth.
+        self._rotated: Deque[Tuple[float, int, np.ndarray]] = deque(maxlen=max_scans)
+        self._seq = count()
         self._pending: Deque[LidarScan] = deque(
             maxlen=pending_maxlen if pending_maxlen is not None else max_scans
         )
@@ -162,9 +170,21 @@ class RotatedScanAccumulator:
         self.scans_accumulated = 0
         self.scans_unmatched = 0
         self.points_accumulated = 0
-        self._last_perf_time = time.perf_counter()
-        self._points_since_perf = 0
-        self._points_per_second = 0
+
+        # Points-per-second: recomputed once per `rate_window` seconds rather
+        # than on every add() call, so it's a stable rate rather than a spiky
+        # per-call number. `_now()` is a hook so tests can drive it with a
+        # fake clock instead of racing against a real one.
+        self.rate_window = float(rate_window)
+        self._rate_window_start_time: float = self._now()
+        self._rate_window_start_points: int = 0
+        self.points_per_second: float = 0.0
+
+    @staticmethod
+    def _now() -> float:
+        """Monotonic clock, isolated behind a method so tests can override it
+        instead of racing against a real one with sleep()."""
+        return time.monotonic()
 
     # --- ingestion ---
 
@@ -187,6 +207,11 @@ class RotatedScanAccumulator:
         Taking plain sequences here (rather than reaching into a stream) is
         what makes offline replay and unit testing possible without hardware.
         """
+        # Checked first, unconditionally, so the rate decays toward zero
+        # during a real gap in data rather than freezing at its last value --
+        # the early returns below would otherwise skip it entirely.
+        self._update_rate()
+
         for scan in scans:
             # The pending queue is bounded, so it can evict. Count those rather
             # than losing them invisibly -- a climbing counter here is the
@@ -227,25 +252,29 @@ class RotatedScanAccumulator:
             if len(xyz) == 0:
                 continue
 
-            self._rotated.append(rotate_points(xyz, match.quaternion))
-
-            num_points = len(xyz)
-            self.points_accumulated += num_points
-            self._points_since_perf += num_points
+            self._insert_rotated(scan.stamp, rotate_points(xyz, match.quaternion))
+            self.points_accumulated += len(xyz)
             self.scans_accumulated += 1
             added += 1
-
-            now = time.perf_counter()
-            elapsed = now - self._last_perf_time
-            if elapsed >= 0.5:
-                self._points_per_second = round(self._points_since_perf / elapsed)
-                self._points_since_perf = 0
-                self._last_perf_time = now
 
         self._pending = deque(still_pending, maxlen=self._pending.maxlen)
         if added:
             self._cache = None
         return added
+
+    def _update_rate(self, now: Optional[float] = None) -> None:
+        """Recompute :attr:`points_per_second` once every ``rate_window``
+        seconds. Called on every :meth:`add`, but only actually updates the
+        published rate on the window boundary -- points_accumulated changes
+        far more often than the rate is useful to re-read.
+        """
+        now = now if now is not None else self._now()
+        elapsed = now - self._rate_window_start_time
+        if elapsed >= self.rate_window:
+            new_points = self.points_accumulated - self._rate_window_start_points
+            self.points_per_second = new_points / elapsed
+            self._rate_window_start_time = now
+            self._rate_window_start_points = self.points_accumulated
 
     @staticmethod
     def _closest_index(sorted_stamps: np.ndarray, target: float) -> int:
@@ -258,10 +287,43 @@ class RotatedScanAccumulator:
         before, after = sorted_stamps[pos - 1], sorted_stamps[pos]
         return pos - 1 if (target - before) <= (after - target) else pos
 
+    def _insert_rotated(self, stamp: float, points: np.ndarray) -> None:
+        """Insert a rotated scan, keeping ``_rotated`` sorted by timestamp.
+
+        Insertion order is not capture order: UDP does not guarantee delivery
+        order, so a scan can arrive after one captured later than it -- either
+        reordered within a single batch, or delayed into a later call entirely.
+        Two things depend on capture order being right: consumers that feed
+        scans sequentially to a registration algorithm (which assume each frame
+        is later than the last), and eviction -- a maxlen deque drops the
+        least-recently-*inserted* item, which without this would sometimes
+        discard a newer scan and keep an older one.
+
+        The fast path is a plain O(1) append, because in-order arrival is the
+        overwhelming majority. The out-of-order path re-sorts, which is O(n log
+        n) on a deque of at most ``max_scans`` items -- cheaper in practice than
+        maintaining a heap for a case that rarely fires.
+        """
+        item = (stamp, next(self._seq), points)
+
+        if not self._rotated or (item[0], item[1]) >= (
+            self._rotated[-1][0], self._rotated[-1][1]
+        ):
+            self._rotated.append(item)  # maxlen evicts the oldest by stamp
+            return
+
+        items = list(self._rotated)
+        items.append(item)
+        items.sort(key=lambda entry: (entry[0], entry[1]))
+        self._rotated.clear()
+        # extend() on a maxlen deque keeps the LAST maxlen items, which after
+        # sorting are the newest by timestamp -- exactly the eviction we want.
+        self._rotated.extend(items)
+
     # --- output ---
 
     def get_points(self) -> np.ndarray:
-        """All accumulated points as one ``(N, 3)`` float64 array.
+        """All accumulated points as one ``(N, 3)`` float64 array, oldest first.
 
         Cached: repeated calls between updates do not re-concatenate. float64
         because Open3D's ``Vector3dVector`` and most registration libraries
@@ -271,7 +333,9 @@ class RotatedScanAccumulator:
             if not self._rotated:
                 self._cache = np.empty((0, 3), dtype=np.float64)
             else:
-                self._cache = np.concatenate(self._rotated, axis=0)
+                self._cache = np.concatenate(
+                    [points for _stamp, _seq, points in self._rotated], axis=0
+                )
         return self._cache
 
     def reset(self) -> None:
@@ -288,7 +352,7 @@ class RotatedScanAccumulator:
             "scans_unmatched": self.scans_unmatched,
             "points_accumulated": self.points_accumulated,
             "points_held": len(self.get_points()),
-            "points_per_second": self._points_per_second,
+            "points_per_second": self.points_per_second,
         }
 
     def __len__(self) -> int:
