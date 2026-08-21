@@ -5,7 +5,6 @@ from __future__ import annotations
 import logging
 import threading
 import time
-from typing import List, Optional
 
 from .protocol import LidarIMU, LidarScan
 from .receiver import LidarUDPReceiver
@@ -54,7 +53,7 @@ class LidarStream:
         imu_maxlen: int = 500,
         timeout: float = 1.0,
         buffer_size: int = 65536,
-        so_rcvbuf: Optional[int] = None,
+        so_rcvbuf: int | None = None,
     ):
         kwargs = dict(port=port, ip=ip, timeout=timeout, buffer_size=buffer_size)
         if so_rcvbuf is not None:
@@ -64,12 +63,12 @@ class LidarStream:
         self.scans: RingBuffer = RingBuffer(scan_maxlen)
         self.imu: RingBuffer = RingBuffer(imu_maxlen)
 
-        self._thread: Optional[threading.Thread] = None
+        self._thread: threading.Thread | None = None
         self._stop_event = threading.Event()
         self._unknown_messages = 0
 
     @classmethod
-    def for_history(cls, seconds: float = 2.0, **kwargs) -> "LidarStream":
+    def for_history(cls, seconds: float = 2.0, **kwargs) -> LidarStream:
         """Build a stream whose buffers hold roughly ``seconds`` of data.
 
         Both buffers end up covering the same wall-clock window, which is the
@@ -83,7 +82,7 @@ class LidarStream:
 
     # --- lifecycle ---
 
-    def start(self) -> "LidarStream":
+    def start(self) -> LidarStream:
         if self.is_running:
             logger.warning("LidarStream already running; start() ignored.")
             return self
@@ -111,7 +110,7 @@ class LidarStream:
         self._receiver.close()
         logger.info("LidarStream stopped.")
 
-    def __enter__(self) -> "LidarStream":
+    def __enter__(self) -> LidarStream:
         return self.start()
 
     def __exit__(self, exc_type, exc_val, exc_tb) -> None:
@@ -129,20 +128,20 @@ class LidarStream:
     # Read the property fresh at the top of each loop iteration.
 
     @property
-    def latest_scan(self) -> Optional[LidarScan]:
+    def latest_scan(self) -> LidarScan | None:
         """Most recent scan, or ``None``. Non-blocking."""
         return self.scans.latest()
 
     @property
-    def latest_imu(self) -> Optional[LidarIMU]:
+    def latest_imu(self) -> LidarIMU | None:
         """Most recent IMU sample, or ``None``. Non-blocking."""
         return self.imu.latest()
 
-    def recent_scans(self, n: int, allow_partial: bool = True) -> List[LidarScan]:
+    def recent_scans(self, n: int, allow_partial: bool = True) -> list[LidarScan]:
         """The ``n`` most recent scans, oldest-first. Non-blocking."""
         return self.scans.latest_n(n, allow_partial=allow_partial)
 
-    def recent_imu(self, n: int, allow_partial: bool = True) -> List[LidarIMU]:
+    def recent_imu(self, n: int, allow_partial: bool = True) -> list[LidarIMU]:
         """The ``n`` most recent IMU samples, oldest-first. Non-blocking."""
         return self.imu.latest_n(n, allow_partial=allow_partial)
 

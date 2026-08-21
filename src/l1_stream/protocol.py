@@ -19,8 +19,8 @@ from __future__ import annotations
 
 import logging
 import struct
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Optional, Sequence, Tuple, Union
 
 import numpy as np
 
@@ -102,7 +102,7 @@ class LidarScan:
     valid_points_num: int
     points: np.ndarray  # structured array, dtype=POINT_DTYPE, len == valid_points_num
 
-    def xyz_intensity(self) -> Tuple[np.ndarray, np.ndarray]:
+    def xyz_intensity(self) -> tuple[np.ndarray, np.ndarray]:
         """Return ``(Nx3 float32 xyz, N-length float32 intensity)``."""
         xyz = np.stack(
             [self.points["x"], self.points["y"], self.points["z"]], axis=1
@@ -154,17 +154,17 @@ class LidarIMU:
 
     stamp: float
     id: int
-    quaternion: Tuple[float, float, float, float]      # (x, y, z, w)
-    angular_velocity: Tuple[float, float, float]       # rad/s
-    linear_acceleration: Tuple[float, float, float]    # m/s^2
+    quaternion: tuple[float, float, float, float]      # (x, y, z, w)
+    angular_velocity: tuple[float, float, float]       # rad/s
+    linear_acceleration: tuple[float, float, float]    # m/s^2
 
-    def quaternion_wxyz(self) -> Tuple[float, float, float, float]:
+    def quaternion_wxyz(self) -> tuple[float, float, float, float]:
         """Same rotation, reordered to scalar-first ``(w, x, y, z)``."""
         x, y, z, w = self.quaternion
         return (w, x, y, z)
 
 
-LidarMessage = Union[LidarScan, LidarIMU]
+LidarMessage = LidarScan | LidarIMU
 
 
 # --- parsing ----------------------------------------------------------------
@@ -212,7 +212,7 @@ def parse_scan(payload: bytes) -> LidarScan:
     return LidarScan(stamp=stamp, id=scan_id, valid_points_num=count, points=points)
 
 
-def parse_packet(data: bytes) -> Optional[LidarMessage]:
+def parse_packet(data: bytes) -> LidarMessage | None:
     """Parse one full UDP datagram.
 
     Returns ``None`` -- never raises -- if the datagram is too short, an

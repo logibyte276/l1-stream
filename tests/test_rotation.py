@@ -1,7 +1,7 @@
-import pytest
 import math
 
 import numpy as np
+import pytest
 
 from l1_stream import (
     LidarIMU,

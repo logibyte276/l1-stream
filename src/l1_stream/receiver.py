@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import logging
 import socket
-from typing import Iterator, Optional
+from collections.abc import Iterator
 
 from .protocol import FULL_SCAN_DATAGRAM_SIZE, LidarMessage, parse_packet
 
@@ -42,7 +42,7 @@ class LidarUDPReceiver:
         ip: str = "0.0.0.0",
         timeout: float = 1.0,
         buffer_size: int = 65536,
-        so_rcvbuf: Optional[int] = DEFAULT_SO_RCVBUF,
+        so_rcvbuf: int | None = DEFAULT_SO_RCVBUF,
     ):
         if buffer_size < FULL_SCAN_DATAGRAM_SIZE:
             raise ValueError(
@@ -54,7 +54,7 @@ class LidarUDPReceiver:
         self.timeout = timeout
         self.buffer_size = buffer_size
         self.so_rcvbuf = so_rcvbuf
-        self._sock: Optional[socket.socket] = None
+        self._sock: socket.socket | None = None
 
     # --- lifecycle ---
 
@@ -101,7 +101,7 @@ class LidarUDPReceiver:
     def is_open(self) -> bool:
         return self._sock is not None
 
-    def __enter__(self) -> "LidarUDPReceiver":
+    def __enter__(self) -> LidarUDPReceiver:
         self.open()
         return self
 
@@ -110,7 +110,7 @@ class LidarUDPReceiver:
 
     # --- reading ---
 
-    def receive_once(self) -> Optional[LidarMessage]:
+    def receive_once(self) -> LidarMessage | None:
         """Block up to ``timeout`` seconds for one datagram.
 
         Returns the parsed message, or ``None`` on timeout / unknown /
@@ -122,7 +122,7 @@ class LidarUDPReceiver:
 
         try:
             data, _addr = sock.recvfrom(self.buffer_size)
-        except (socket.timeout, TimeoutError):
+        except TimeoutError:
             return None
 
         return parse_packet(data)

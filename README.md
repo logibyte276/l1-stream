@@ -352,7 +352,7 @@ shows `1 skipped` means the reference check did not execute.
 On aarch64, set `PIP_CONSTRAINT` before installing (see [Install](#install)) or
 the dev install can pull numpy 2 and break the `[viz]` extra.
 
-The package declares `requires-python = ">=3.9"` but is currently tested only on
+The package declares `requires-python = ">=3.10"` but is currently tested only on
 Python 3.10 / aarch64 — there is no CI yet. The Python 3.10 / numpy<2 pairing
 described above is an **aarch64 deployment constraint, not a package
 requirement**: on x86_64 the `[viz]` extra is unconstrained.

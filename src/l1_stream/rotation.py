@@ -32,8 +32,8 @@ from __future__ import annotations
 import logging
 import time
 from collections import deque
+from collections.abc import Iterable, Sequence
 from itertools import count
-from typing import Deque, Iterable, List, Optional, Sequence, Tuple
 
 import numpy as np
 
@@ -143,7 +143,7 @@ class RotatedScanAccumulator:
         self,
         max_scans: int = 100,
         max_time_gap: float = 0.01,
-        pending_maxlen: Optional[int] = None,
+        pending_maxlen: int | None = None,
         drop_zero_returns: bool = True,
         rate_window: float = 1.0,
     ):
@@ -160,12 +160,12 @@ class RotatedScanAccumulator:
         # Entries are (stamp, seq, points), kept sorted by (stamp, seq).
         # The seq counter is a tiebreaker so tuple comparison never falls
         # through to comparing numpy arrays, which raises on ambiguous truth.
-        self._rotated: Deque[Tuple[float, int, np.ndarray]] = deque(maxlen=max_scans)
+        self._rotated: deque[tuple[float, int, np.ndarray]] = deque(maxlen=max_scans)
         self._seq = count()
-        self._pending: Deque[LidarScan] = deque(
+        self._pending: deque[LidarScan] = deque(
             maxlen=pending_maxlen if pending_maxlen is not None else max_scans
         )
-        self._cache: Optional[np.ndarray] = None
+        self._cache: np.ndarray | None = None
 
         self.scans_accumulated = 0
         self.scans_unmatched = 0
@@ -230,7 +230,7 @@ class RotatedScanAccumulator:
         sorted_stamps = stamps[order]
         newest_imu = float(sorted_stamps[-1])
 
-        still_pending: List[LidarScan] = []
+        still_pending: list[LidarScan] = []
         added = 0
 
         for scan in self._pending:
@@ -262,7 +262,7 @@ class RotatedScanAccumulator:
             self._cache = None
         return added
 
-    def _update_rate(self, now: Optional[float] = None) -> None:
+    def _update_rate(self, now: float | None = None) -> None:
         """Recompute :attr:`points_per_second` once every ``rate_window``
         seconds. Called on every :meth:`add`, but only actually updates the
         published rate on the window boundary -- points_accumulated changes

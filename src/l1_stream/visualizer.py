@@ -16,7 +16,8 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Any, Callable, Optional
+from collections.abc import Callable
+from typing import Any
 
 import numpy as np
 
@@ -84,8 +85,8 @@ class LiveVisualizer:
 
     def __init__(
         self,
-        stream: Optional[LidarStream] = None,
-        accumulator: Optional[RotatedScanAccumulator] = None,
+        stream: LidarStream | None = None,
+        accumulator: RotatedScanAccumulator | None = None,
         *,
         window_name: str = "Unitree L1 Point Cloud",
         width: int = 1920,
@@ -96,9 +97,9 @@ class LiveVisualizer:
         show_axes: bool = True,
         axes_size: float = 1.0,
         point_size: float = 2.0,
-        background_color: Optional[Any] = None,
+        background_color: Any | None = None,
         stats_interval: float = 1.0,
-        on_frame: Optional[Callable[[np.ndarray, RotatedScanAccumulator], None]] = None,
+        on_frame: Callable[[np.ndarray, RotatedScanAccumulator], None] | None = None,
     ):
         if refresh_hz <= 0:
             raise ValueError("refresh_hz must be > 0")
@@ -135,7 +136,7 @@ class LiveVisualizer:
     def is_open(self) -> bool:
         return self._is_open
 
-    def open(self, wait_for_data: float = 5.0) -> "LiveVisualizer":
+    def open(self, wait_for_data: float = 5.0) -> LiveVisualizer:
         """Start the stream (if owned) and create the window."""
         if self._is_open:
             logger.warning("LiveVisualizer already open; open() ignored.")
@@ -220,7 +221,7 @@ class LiveVisualizer:
             self.stream.stop()
         self._started_stream = False
 
-    def __enter__(self) -> "LiveVisualizer":
+    def __enter__(self) -> LiveVisualizer:
         return self.open()
 
     def __exit__(self, exc_type, exc_val, exc_tb) -> None:
