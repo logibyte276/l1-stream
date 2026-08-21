@@ -28,12 +28,14 @@ classifiers = [
 dependencies = ["numpy>=1.21"]
 
 [project.optional-dependencies]
-viz = ["open3d>=0.17"]
+# Open3D 0.18 was built against numpy 1.x headers and breaks under numpy 2's
+# C ABI, but declares no upper bound itself. Pin the pair, not just the package.
+viz = ["open3d>=0.18,<0.19", "numpy<2"]
 dev = ["pytest>=7.0", "scipy>=1.7", "ruff>=0.4"]
 
 [project.urls]
-Homepage = "https://github.com/YOUR_USERNAME/l1-stream"
-Issues = "https://github.com/YOUR_USERNAME/l1-stream/issues"
+Homepage = "https://github.com/logibyte276/l1-stream"
+Issues = "https://github.com/logibyte276/l1-stream/issues"
 
 [project.scripts]
 l1-monitor = "l1_stream.cli:monitor_main"

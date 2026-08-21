@@ -1,3 +1,4 @@
+import pytest
 import math
 
 import numpy as np
@@ -59,11 +60,12 @@ def test_vector_form_matches_matrix_form():
         assert np.allclose(rotate_points(pts, q), pts @ quaternion_to_matrix(q).T)
 
 
-def test_matches_scipy_if_available():
-    try:
-        from scipy.spatial.transform import Rotation
-    except ImportError:
-        return  # optional cross-check
+def test_matches_scipy():
+    # importorskip, not try/except/return: a bare return reports PASS for a test
+    # that never ran. This is the only check that validates our quaternion
+    # convention against an independent implementation -- if it is skipped, that
+    # must be visible in the pytest output.
+    Rotation = pytest.importorskip("scipy.spatial.transform").Rotation
     rng = np.random.default_rng(2)
     pts = rng.normal(size=(64, 3))
     for _ in range(20):
