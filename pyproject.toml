@@ -9,7 +9,7 @@ description = "An optimized, fully tested UDP client for the Unitree L1 LiDAR: p
 readme = "README.md"
 requires-python = ">=3.9"
 license = { file = "LICENSE" }
-authors = [{ name = "Chunyee" }]
+authors = [{ name = "Chunyee Shu" }]
 keywords = ["lidar", "unitree", "unilidar", "robotics", "point-cloud", "slam", "udp", "open3d"]
 classifiers = [
     "Development Status :: 3 - Alpha",
