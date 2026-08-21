@@ -335,10 +335,10 @@ ruff check src tests
 On aarch64, set `PIP_CONSTRAINT` first (see [Install](#install)) or the dev
 install can pull numpy 2 and break the `[viz]` extra.
 
-The package declares `requires-python = ">=3.9"`, but is currently tested only
-on Python 3.10 / aarch64 — there is no CI yet. The Python 3.10 / numpy<2 pairing
-above is an **aarch64 deployment constraint, not a package requirement**: on
-x86_64 the `[viz]` extra is unconstrained.
+CI runs the suite on Python 3.9 / 3.11 / 3.12 (`.github/workflows/ci.yml`).
+The Python 3.10 / numpy<2 pairing above is an **aarch64 deployment constraint,
+not a package requirement** — CI runs on x86_64, where Open3D and numpy 2 are
+unconstrained.
 
 ## License
 
