@@ -7,7 +7,7 @@ name = "l1-stream"
 version = "0.1.0"
 description = "An optimized, fully tested UDP client for the Unitree L1 LiDAR: parsing, thread-safe buffering, and IMU rotation compensation"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 license = { file = "LICENSE" }
 authors = [{ name = "Chunyee Shu" }]
 keywords = ["lidar", "unitree", "unilidar", "robotics", "point-cloud", "slam", "udp", "open3d"]
@@ -16,7 +16,6 @@ classifiers = [
     "Intended Audience :: Science/Research",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
@@ -50,7 +49,7 @@ addopts = "-q"
 
 [tool.ruff]
 line-length = 100
-target-version = "py39"
+target-version = "py310"
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B"]

@@ -5,7 +5,7 @@ from __future__ import annotations
 import threading
 from collections import deque
 from itertools import islice
-from typing import Any, Deque, List, Optional
+from typing import Any
 
 __all__ = ["RingBuffer"]
 
@@ -34,7 +34,7 @@ class RingBuffer:
             raise TypeError(f"maxlen must be an int, got {type(maxlen).__name__}")
         if maxlen < 1:
             raise ValueError("maxlen must be >= 1")
-        self._buf: Deque[Any] = deque(maxlen=maxlen)
+        self._buf: deque[Any] = deque(maxlen=maxlen)
         self._lock = threading.Lock()
         self._condition = threading.Condition(self._lock)
         self._total_received = 0
@@ -76,12 +76,12 @@ class RingBuffer:
 
     # --- consumer side ---
 
-    def latest(self) -> Optional[Any]:
+    def latest(self) -> Any | None:
         """Most recent item, or ``None`` if nothing has arrived yet."""
         with self._lock:
             return self._buf[-1] if self._buf else None
 
-    def latest_n(self, n: int, allow_partial: bool = True) -> List[Any]:
+    def latest_n(self, n: int, allow_partial: bool = True) -> list[Any]:
         """The ``n`` most recent items, oldest-first, as a snapshot list.
 
         The guardrails differ on purpose:
@@ -121,12 +121,12 @@ class RingBuffer:
             # O(n^2), because deque indexing is O(n) toward the middle.
             return list(islice(self._buf, available - n, available))
 
-    def snapshot(self) -> List[Any]:
+    def snapshot(self) -> list[Any]:
         """Everything currently buffered, oldest-first. Does not consume."""
         with self._lock:
             return list(self._buf)
 
-    def drain(self) -> List[Any]:
+    def drain(self) -> list[Any]:
         """Everything currently buffered, oldest-first, AND clear the buffer.
 
         Use this when you want each item exactly once instead of just the
@@ -137,7 +137,7 @@ class RingBuffer:
             self._buf.clear()
             return items
 
-    def wait_for_new(self, timeout: Optional[float] = None) -> Optional[Any]:
+    def wait_for_new(self, timeout: float | None = None) -> Any | None:
         """Block until at least one new item arrives, then return the newest.
 
         Returns ``None`` on timeout. Lower-latency and far cheaper than
