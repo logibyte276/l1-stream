@@ -215,3 +215,68 @@ def test_pending_overflow_is_counted_not_silent():
         acc.add([make_scan(1.0 + i * 0.001, i, [[1, 0, 0]])], [])
     assert acc.stats()["scans_pending"] == 2
     assert acc.stats()["scans_unmatched"] == 3  # the 3 evicted ones are accounted for
+
+
+# --- timestamp ordering (out-of-order / delayed scan arrival) --------------
+#
+# Order is verified through get_points(): each test scan carries a distinct x
+# value, so the x column reflects the order scans sit in the window.
+
+def test_reordered_arrival_within_one_call_is_sorted_by_capture_time():
+    """UDP does not guarantee ordering, so scans can arrive newest-first."""
+    acc = RotatedScanAccumulator(max_scans=10, max_time_gap=0.01)
+    late = make_scan(1.006, 1, [[2, 0, 0]])
+    early = make_scan(1.000, 0, [[1, 0, 0]])
+    imu = [make_imu(1.000, 0), make_imu(1.006, 1)]
+
+    acc.add([late, early], imu)  # delivered out of capture order
+
+    assert np.allclose(acc.get_points(), [[1, 0, 0], [2, 0, 0]])
+
+
+def test_delayed_scan_arriving_in_a_later_call_is_still_ordered():
+    """A datagram delayed past a newer one must not land after it in the window."""
+    acc = RotatedScanAccumulator(max_scans=10, max_time_gap=0.01)
+
+    acc.add([make_scan(1.006, 1, [[2, 0, 0]])], [make_imu(1.006, 1)])
+    # The older scan's datagram shows up a call later.
+    acc.add([make_scan(1.000, 0, [[1, 0, 0]])],
+            [make_imu(1.000, 0), make_imu(1.006, 1)])
+
+    assert np.allclose(acc.get_points(), [[1, 0, 0], [2, 0, 0]])
+
+
+def test_eviction_drops_oldest_by_timestamp_not_by_insertion_order():
+    acc = RotatedScanAccumulator(max_scans=2, max_time_gap=0.01)
+
+    for i, t in enumerate((1.010, 1.020), start=1):
+        acc.add([make_scan(t, i, [[float(i), 0, 0]])], [make_imu(t, i)])
+
+    # A delayed scan OLDER than both. The window is full, so letting it in must
+    # not evict a newer scan to make room for it.
+    acc.add([make_scan(1.000, 0, [[9, 0, 0]])],
+            [make_imu(1.000, 0), make_imu(1.010, 1)])
+
+    pts = acc.get_points()
+    assert len(pts) == 2
+    assert np.allclose(pts[:, 0], [1, 2])  # the 9 was correctly not kept
+
+
+def test_in_order_arrivals_are_unaffected():
+    acc = RotatedScanAccumulator(max_scans=10, max_time_gap=0.01)
+    for i in range(1, 6):  # start at 1: [0,0,0] is a zero-return and is filtered
+        t = 1.0 + i * 0.001
+        acc.add([make_scan(t, i, [[float(i), 0, 0]])], [make_imu(t, i)])
+    assert np.allclose(acc.get_points()[:, 0], [1, 2, 3, 4, 5])
+
+
+def test_equal_timestamps_do_not_raise_on_array_comparison():
+    """The seq tiebreaker exists so tuple compare never reaches the ndarray."""
+    acc = RotatedScanAccumulator(max_scans=10, max_time_gap=0.01)
+    acc.add([make_scan(1.0, 0, [[1, 0, 0]])], [make_imu(1.0, 0)])
+    acc.add([make_scan(1.0, 1, [[2, 0, 0]])], [make_imu(1.0, 1)])
+    # Same stamp again, delivered after an older one -- forces the sort path
+    # with tied timestamps.
+    acc.add([make_scan(1.0, 2, [[3, 0, 0]]), make_scan(0.999, 3, [[4, 0, 0]])],
+            [make_imu(0.999, 3), make_imu(1.0, 2)])
+    assert len(acc.get_points()) == 4
