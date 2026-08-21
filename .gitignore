@@ -1,0 +1,19 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Recordings and outputs -- these get large fast and belong in
+# a data release (Zenodo), not in git history.
+data/
+recordings/
+*.ply
+*.pcd
+*.npz
+*.bag
+outputs/
