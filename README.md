@@ -13,7 +13,7 @@ timestamp without losing packets when your consumer loop stutters.
   package installs in seconds on a headless Jetson.
 - **No hardware needed to develop or test.** `pack_imu_packet` /
   `pack_scan_packet` build byte-identical datagrams in memory, so the whole
-  pipeline is testable offline. 76 tests, none of which touch a sensor.
+  pipeline is testable offline. 81 tests, none of which touch a sensor.
 - **Importable, not just runnable.** Nothing opens a socket, spawns a thread, or
   creates a window at import time.
 
@@ -108,8 +108,43 @@ pip install -e ".[viz]"     # + Open3D for the live viewer
 pip install -e ".[dev]"     # + pytest, scipy, ruff
 ```
 
-On Jetson/ARM64, Open3D often needs a prebuilt wheel from the
-[Open3D releases page](https://github.com/isl-org/Open3D/releases) rather than PyPI.
+### On aarch64 (Jetson): Python 3.10 and numpy<2
+
+Developed and tested on an NVIDIA Jetson Orin Nano (JetPack 6, Ubuntu 22.04,
+aarch64) with Python 3.10, numpy 1.26.4, and Open3D 0.18.0.
+
+```bash
+conda create -n l1 python=3.10
+conda activate l1
+export PIP_CONSTRAINT=$(pwd)/constraints.txt
+pip install -e ".[viz]"
+```
+
+Two constraints, both driven by Open3D:
+
+**Python 3.10.** Open3D publishes no aarch64 wheel for Python 3.13 —
+`pip install open3d` there reports `from versions: none`. That sets the upper
+bound on the interpreter version.
+
+**numpy<2.** On aarch64/py310 the newest available Open3D is 0.18.0, which was
+built against numpy 1.x headers and breaks under numpy 2's C ABI. Open3D 0.18
+declares no numpy upper bound, so pip will happily resolve numpy 2 and produce
+an install that imports cleanly and then fails at runtime. `constraints.txt`
+pins `numpy<2`. Set `PIP_CONSTRAINT` before installing *anything* into the
+environment, so a later install (evo, matplotlib, anything depending on numpy)
+cannot silently upgrade numpy out from under Open3D.
+
+To make the constraint permanent for a conda env:
+
+```bash
+mkdir -p "$CONDA_PREFIX/etc/conda/activate.d"
+echo "export PIP_CONSTRAINT=$(pwd)/constraints.txt" \
+  > "$CONDA_PREFIX/etc/conda/activate.d/pip_constraint.sh"
+```
+
+Neither constraint applies on x86_64, where newer Open3D and numpy 2 work fine.
+The core package is unaffected either way — the ceiling belongs to the `[viz]`
+extra, not to `l1-stream` itself, so a headless install stays unconstrained.
 
 ---
 
@@ -284,7 +319,8 @@ check `l1-monitor` for a `dataSize` warning and consider a jumbo-frame MTU.
   geometry. Whether the L1 emits them at all is unverified; the filter is
   harmless either way.
 - The Open3D window path is **not covered by tests** — it needs a display. Every
-  non-GUI path is.
+  non-GUI path is. On a Jetson the GUI also needs full OpenGL, which is not
+  available over a plain SSH session.
 
 ---
 
@@ -296,7 +332,13 @@ pytest -q
 ruff check src tests
 ```
 
-CI runs the suite on Python 3.9 / 3.11 / 3.12 (`.github/workflows/ci.yml`).
+On aarch64, set `PIP_CONSTRAINT` first (see [Install](#install)) or the dev
+install can pull numpy 2 and break the `[viz]` extra.
+
+The package declares `requires-python = ">=3.9"`, but is currently tested only
+on Python 3.10 / aarch64 — there is no CI yet. The Python 3.10 / numpy<2 pairing
+above is an **aarch64 deployment constraint, not a package requirement**: on
+x86_64 the `[viz]` extra is unconstrained.
 
 ## License
 
