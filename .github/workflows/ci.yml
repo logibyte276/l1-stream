@@ -1,0 +1,76 @@
+name: CI
+
+# When to run. Push covers your own commits to main; pull_request covers
+# branches before they merge; workflow_dispatch adds a "Run workflow" button
+# on the Actions tab so you can trigger it by hand.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# If you push twice in a row, cancel the older run instead of paying for both.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: ruff
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - run: pip install ruff
+      # Config (line-length, rule set) comes from [tool.ruff] in pyproject.toml,
+      # so CI and your laptop enforce exactly the same thing.
+      - run: ruff check .
+
+  test:
+    name: pytest (py${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      # Don't kill the other versions the moment one fails -- you want to know
+      # whether it's broken everywhere or only on 3.10.
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      # [dev] only -- deliberately NOT [viz]. Open3D is a ~400 MB download that
+      # needs a display, and tests/test_visualizer.py stubs it out anyway.
+      - run: pip install -e ".[dev]"
+
+      # -q and testpaths already come from [tool.pytest.ini_options].
+      - run: pytest
+
+  package:
+    name: build sdist + wheel
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install build twine
+      - run: python -m build
+      # Catches metadata problems (bad README markup, missing license) that
+      # would only otherwise surface the day you try to publish to PyPI.
+      - run: twine check dist/*
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
