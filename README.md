@@ -1,5 +1,7 @@
 # l1-stream
 
+[![CI](https://github.com/logibyte276/l1-stream/actions/workflows/ci.yml/badge.svg)](https://github.com/logibyte276/l1-stream/actions/workflows/ci.yml)
+
 A Python client for a **Unitree L1 LiDAR** streamed over UDP: packet parsing,
 thread-safe buffering, IMU-based orientation compensation, and an optional live
 Open3D view.
