@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "l1-stream"
-version = "0.1.0"
+version = "0.2.0"
 description = "An optimized, fully tested UDP client for the Unitree L1 LiDAR: parsing, thread-safe buffering, and IMU rotation compensation"
 readme = "README.md"
 requires-python = ">=3.10"
