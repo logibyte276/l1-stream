@@ -29,7 +29,13 @@ dependencies = ["numpy>=1.21"]
 [project.optional-dependencies]
 # Open3D 0.18 was built against numpy 1.x headers and breaks under numpy 2's
 # C ABI, but declares no upper bound itself. Pin the pair, not just the package.
-viz = ["open3d>=0.18,<0.19", "numpy<2"]
+viz = [
+  "open3d>=0.18",
+  # aarch64 has no Open3D newer than 0.18, and 0.18 was built against
+  # numpy 1.x headers -- it breaks under numpy 2's C ABI. x86_64 is fine.
+  "open3d<0.19; platform_machine == 'aarch64'",
+  "numpy<2;     platform_machine == 'aarch64'",
+]
 dev = ["pytest>=7.0", "scipy>=1.7", "ruff>=0.4"]
 
 [project.urls]
