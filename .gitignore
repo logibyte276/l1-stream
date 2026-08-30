@@ -17,3 +17,4 @@ recordings/
 *.npz
 *.bag
 outputs/
+*.l1raw
