@@ -98,5 +98,6 @@ if args.odometry:
         print(f"    net {np.linalg.norm(xyz[-1]-xyz[0]):.3f} m, "
               f"path {o.path_length():.3f} m  <- both should be ~0")
         t = np.array(thresholds)
-        print(f"    adaptive threshold {t.min():.3f} -> {t.max():.3f} m "
-              f"({'ADAPTS' if np.ptp(t) > 1e-6 else 'NEVER MOVES'})")
+        print(f"    adaptive threshold  start {t[0]:.3f}  final {t[-1]:.3f}  "
+              f"(range {t.min():.3f}-{t.max():.3f} m, "
+              f"{'ADAPTS' if np.ptp(t) > 1e-6 else 'NEVER MOVES'})")
