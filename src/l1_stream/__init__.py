@@ -52,6 +52,9 @@ from .rotation import (
     rotate_points,
 )
 from .stream import LidarStream
+from .frames import Frame, FrameAssembler
+from .recording import DatagramRecorder, Replayer, raw_datagrams
+from .odometry import KissOdometry          # safe: kiss_icp imports lazily
 
 __version__ = "0.1.0"
 
@@ -80,4 +83,10 @@ __all__ = [
     "normalize_quaternion",
     "quaternion_to_matrix",
     "RotatedScanAccumulator",
+    "DatagramRecorder",
+    "Frame",
+    "FrameAssembler",
+    "KissOdometry",
+    "Replayer",
+    "raw_datagrams",
 ]
