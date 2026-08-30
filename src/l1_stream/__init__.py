@@ -28,6 +28,8 @@ The visualiser is not imported here: pulling it in eagerly would make
 Jetsons. Import :mod:`l1_stream.visualizer` explicitly when you want it.
 """
 
+from .frames import Frame, FrameAssembler
+from .odometry import KissOdometry  # safe: kiss_icp imports lazily
 from .protocol import (
     MAX_POINTS_PER_SCAN,
     MSG_TYPE_IMU,
@@ -44,6 +46,7 @@ from .protocol import (
     parse_scan,
 )
 from .receiver import LidarUDPReceiver
+from .recording import DatagramRecorder, Replayer, raw_datagrams
 from .ring_buffer import RingBuffer
 from .rotation import (
     RotatedScanAccumulator,
@@ -52,9 +55,6 @@ from .rotation import (
     rotate_points,
 )
 from .stream import LidarStream
-from .frames import Frame, FrameAssembler
-from .recording import DatagramRecorder, Replayer, raw_datagrams
-from .odometry import KissOdometry          # safe: kiss_icp imports lazily
 
 __version__ = "0.1.0"
 
