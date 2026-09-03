@@ -51,7 +51,7 @@ class KissOdometry:
         *,
         voxel_size: float = 0.25,
         max_range: float = 25.0,
-        min_range: float = 0.4,
+        min_range: float = 0.25,
         deskew: bool = True,
         initial_threshold: float = 0.4,
         min_motion_th: float = 0.02,
