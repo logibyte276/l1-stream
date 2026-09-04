@@ -49,7 +49,7 @@ class KissOdometry:
     def __init__(
         self,
         *,
-        voxel_size: float = 0.25,
+        voxel_size: float = 0.1,
         max_range: float = 25.0,
         min_range: float = 0.25,
         deskew: bool = True,
