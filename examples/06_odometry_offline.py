@@ -22,9 +22,9 @@ logging.basicConfig(level=logging.WARNING, format="%(message)s")
 p = argparse.ArgumentParser()
 p.add_argument("path")
 p.add_argument("--frame-duration", type=float, default=0.2)
-p.add_argument("--voxel-size", type=float, default=0.25)
+p.add_argument("--voxel-size", type=float, default=0.1)
 p.add_argument("--max-range", type=float, default=25.0)
-p.add_argument("--min-range", type=float, default=0.4,
+p.add_argument("--min-range", type=float, default=0.25,
                help="Measure this: it must clear your chassis self-hits.")
 p.add_argument("--initial-threshold", type=float, default=0.4)
 p.add_argument("--no-imu-rotation", action="store_true",
