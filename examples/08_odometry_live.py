@@ -17,7 +17,7 @@ from l1_stream.odometry import KissOdometry
 logging.basicConfig(level=logging.INFO, format="%(message)s")
 
 assembler = FrameAssembler(frame_duration=0.2)
-odom = KissOdometry(voxel_size=0.25, max_range=25.0, min_range=0.4)
+odom = KissOdometry(voxel_size=0.15, max_range=25.0, min_range=0.25)
 
 with LidarStream.for_history(2.0) as lidar:
     last_report = time.monotonic()

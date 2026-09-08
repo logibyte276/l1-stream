@@ -31,7 +31,10 @@ p.add_argument("--no-imu-rotation", action="store_true",
                help="ABLATION 1: feed raw body-frame points and let KISS-ICP "
                     "estimate full SE(3). Then last_pose IS the sensor pose, "
                     "and nothing depends on the 6-axis IMU's drifting yaw.")
-p.add_argument("--no-deskew", action="store_true")
+p.add_argument("--deskew", action="store_true",
+               help="Enable deskew. OFF by default here: with IMU pre-rotation "
+                    "it measured slightly worse (loop 0.2%% -> 0.1%%). Note "
+                    "KISS-ICP's own default is True.")
 p.add_argument("--out", default=None, help="Save the trajectory as .npy")
 args = p.parse_args()
 
@@ -43,7 +46,7 @@ odom = KissOdometry(
     voxel_size=args.voxel_size,
     max_range=args.max_range,
     min_range=args.min_range,
-    deskew=not args.no_deskew,
+    deskew=args.deskew,
     initial_threshold=args.initial_threshold,
 )
 
