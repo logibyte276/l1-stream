@@ -22,6 +22,8 @@ import logging
 
 import numpy as np
 
+from .config import DEFAULTS, UNTUNED
+
 logger = logging.getLogger(__name__)
 
 __all__ = ["KissOdometry"]
@@ -49,15 +51,18 @@ class KissOdometry:
     def __init__(
         self,
         *,
-        voxel_size: float = 0.15,
-        max_range: float = 25.0,
-        min_range: float = 0.25,
-        deskew: bool = False,
-        initial_threshold: float = 0.4,
-        min_motion_th: float = 0.02,
-        max_points_per_voxel: int = 20,
-        max_num_iterations: int = 500,
-        convergence_criterion: float = 1e-4,
+        # Defaults come from l1_stream.config so that constructing this class
+        # bare gives the TUNED configuration. They used to be written out here
+        # and had drifted three values away from the rest of the pipeline.
+        voxel_size: float = DEFAULTS["voxel_size"],
+        max_range: float = DEFAULTS["max_range"],
+        min_range: float = DEFAULTS["min_range"],
+        deskew: bool = DEFAULTS["deskew"],
+        initial_threshold: float = DEFAULTS["initial_threshold"],
+        min_motion_th: float = UNTUNED["min_motion_th"],
+        max_points_per_voxel: int = UNTUNED["max_points_per_voxel"],
+        max_num_iterations: int = UNTUNED["max_num_iterations"],
+        convergence_criterion: float = UNTUNED["convergence_criterion"],
     ):
         from kiss_icp.config import KISSConfig
         from kiss_icp.kiss_icp import KissICP
