@@ -38,6 +38,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from .config import DEFAULTS
 from .protocol import LidarIMU, LidarScan
 from .rotation import rotate_points
 
@@ -96,9 +97,9 @@ class FrameAssembler:
 
     def __init__(
         self,
-        frame_duration: float = 0.2,
+        frame_duration: float = DEFAULTS["frame_duration"],
         max_time_gap: float = 0.01,
-        rotate_with_imu: bool = True,
+        rotate_with_imu: bool = DEFAULTS["rotate_with_imu"],
         drop_zero_returns: bool = True,
         min_points: int = 300,
         pending_maxlen: int = 400,
