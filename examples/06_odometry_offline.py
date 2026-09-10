@@ -1,11 +1,27 @@
-"""Run KISS-ICP over a recording. This is where tuning happens.
+"""The odometry report. One command, every metric, from one recording.
 
-    python examples/06_odometry_offline.py drive_01.l1raw --frame-duration 0.2
-    python examples/06_odometry_offline.py drive_01.l1raw --no-imu-rotation
+    python examples/06_odometry_offline.py personal/drive.l1raw
+    python examples/06_odometry_offline.py personal/drive.l1raw --truth 5.0
+    python examples/06_odometry_offline.py personal/drive.l1raw --voxel-size 0.10
 
-The second form is ablation #1 (see below). Because replay is not paced, a
-60 s drive re-runs in a second or two -- which is the entire reason to record
-before wiring odometry into the live loop.
+Replay is unpaced, so a 60 s drive re-runs in seconds -- which is the whole
+reason to record before wiring odometry into the live loop.
+
+This absorbs what used to be three separate scripts (an odometry summary, a
+per-frame rotation checker, and a speed/clipping profiler). They shared the
+same replay loop and had drifted apart on defaults; now the loop and the
+defaults both live in l1_stream.offline.
+
+READING THE OUTPUT. Different tests answer different questions, and mixing
+them up has burned this project more than once:
+
+  * ``net`` against a tape measure  -> SCALE. A loop cannot see scale error:
+    a uniform shortfall cancels exactly around a symmetric loop.
+  * ``loop error`` on a closed loop -> HEADING. It says nothing about scale.
+  * ``path / net``                  -> jitter plus any real weaving.
+  * ``jitter``                      -> the estimator alone, no path assumption.
+  * ``clipping``                    -> whether the recording caught the whole
+    drive. A late start looks EXACTLY like a scale error.
 """
 
 import argparse
@@ -13,76 +29,87 @@ import logging
 
 import numpy as np
 
-from l1_stream.frames import FrameAssembler
-from l1_stream.odometry import KissOdometry
-from l1_stream.recording import Replayer
+from l1_stream.offline import add_args, config_from_args, replay
 
 logging.basicConfig(level=logging.WARNING, format="%(message)s")
 
 p = argparse.ArgumentParser()
 p.add_argument("path")
-p.add_argument("--frame-duration", type=float, default=0.2)
-p.add_argument("--voxel-size", type=float, default=0.15)
-p.add_argument("--max-range", type=float, default=25.0)
-p.add_argument("--min-range", type=float, default=0.25,
-               help="Measure this: it must clear your chassis self-hits.")
-p.add_argument("--initial-threshold", type=float, default=0.4)
-p.add_argument("--no-imu-rotation", action="store_true",
-               help="ABLATION 1: feed raw body-frame points and let KISS-ICP "
-                    "estimate full SE(3). Then last_pose IS the sensor pose, "
-                    "and nothing depends on the 6-axis IMU's drifting yaw.")
-p.add_argument("--deskew", action="store_true",
-               help="Enable deskew. OFF by default here: with IMU pre-rotation "
-                    "it measured slightly worse (loop 0.2%% -> 0.1%%). Note "
-                    "KISS-ICP's own default is True.")
-p.add_argument("--out", default=None, help="Save the trajectory as .npy")
+add_args(p)
+p.add_argument("--truth", type=float, default=None,
+               help="tape-measured displacement in m; prints scale error")
+p.add_argument("--still", type=float, default=0.15,
+               help="speed below this (m/s) counts as stopped, for the "
+                    "clipping check. Must clear the jitter floor "
+                    "(~12 mm/frame parked at 0.2 s = 0.06 m/s).")
+p.add_argument("--profile", action="store_true", help="print a speed profile")
+p.add_argument("--out", default=None, help="save the trajectory as .npy")
 args = p.parse_args()
 
-assembler = FrameAssembler(
-    frame_duration=args.frame_duration,
-    rotate_with_imu=not args.no_imu_rotation,
-)
-odom = KissOdometry(
-    voxel_size=args.voxel_size,
-    max_range=args.max_range,
-    min_range=args.min_range,
-    deskew=args.deskew,
-    initial_threshold=args.initial_threshold,
-)
+run = replay(args.path, **config_from_args(args))
+if len(run.xyz) < 2:
+    raise SystemExit(f"Only {len(run.xyz)} frames registered.\n{run.assembler_stats}")
 
-spans, sizes = [], []
-for scans, imu in Replayer(args.path).iter_batches(period=0.05):
-    for frame in assembler.add(scans, imu):
-        odom.register(frame)
-        spans.append(frame.span)
-        sizes.append(len(frame))
+c = run.config
+print("config            " + "  ".join(
+    f"{k}={v}" for k, v in (
+        ("frame", c["frame_duration"]), ("voxel", c["voxel_size"]),
+        ("range", f"{c['min_range']}-{c['max_range']}"),
+        ("imu_rot", c["rotate_with_imu"]), ("deskew", c["deskew"]))))
 
-tail = assembler.flush()
-if tail is not None:
-    odom.register(tail)
-    spans.append(tail.span)
-    sizes.append(len(tail))
+print(f"frames            {len(run.xyz)}")
+print(f"points/frame      mean {run.sizes.mean():.0f}  "
+      f"min {run.sizes.min()}  max {run.sizes.max()}")
+print(f"frame span        mean {run.spans.mean()*1000:.1f} ms  "
+      f"std {run.spans.std()*1000:.1f} ms   <- want a SMALL std")
 
-if not odom.poses:
-    raise SystemExit("No frames were registered. Check assembler.stats() below.\n"
-                     f"{assembler.stats()}")
+path_len, net = run.path_length, run.net_displacement
+print(f"\npath length       {path_len:.3f} m")
+print(f"net displacement  {net:.3f} m")
+print(f"path / net        {path_len/max(net, 1e-9):.3f}   "
+      f"<- jitter plus any real weaving")
+if args.truth:
+    print(f"scale error       {100*(net-args.truth)/args.truth:+.1f}%  "
+          f"vs a measured {args.truth:.2f} m   <- SCALE (open drives only)")
+print(f"loop error        {net:.3f} m ({100*net/max(path_len,1e-9):.2f}% of path)"
+      f"   <- HEADING, and only meaningful if you returned to the start")
 
-xyz = odom.trajectory()
-spans, sizes = np.array(spans), np.array(sizes)
+rot = run.rotation_deg
+print(f"\nper-frame rotation  mean {rot.mean():.2f} deg  "
+      f"p95 {np.percentile(rot, 95):.2f} deg")
+print(f"jitter              {run.jitter_mm:.1f} mm/frame  "
+      f"(2nd-difference estimate; parked floor was 12.6 mm)")
+print(f"z range             {run.xyz[:,2].min():+.3f} .. {run.xyz[:,2].max():+.3f} m"
+      f"   <- hemisphere-above FOV makes z weakly observable")
 
-print(f"frames            {len(odom.poses)}")
-print(f"points/frame      mean {sizes.mean():.0f}  min {sizes.min()}  max {sizes.max()}")
-print(f"frame span        mean {spans.mean()*1000:.1f} ms  "
-      f"std {spans.std()*1000:.1f} ms   <- want a SMALL std")
-print(f"path length       {odom.path_length():.2f} m")
-print(f"net displacement  {np.linalg.norm(xyz[-1] - xyz[0]):.2f} m")
-print(f"loop error        {odom.loop_closure_error():.3f} m "
-      f"({100*odom.loop_closure_error()/max(odom.path_length(),1e-9):.1f}% of path)")
-print(f"z range           {xyz[:,2].min():+.2f} .. {xyz[:,2].max():+.2f} m "
-      f"<- the L1 sees only the hemisphere ABOVE itself, so z is weakly observable")
-print(f"final threshold   {odom.threshold:.3f} m")
-print(f"assembler         {assembler.stats()}")
+t = run.thresholds
+print(f"adaptive threshold  start {t[0]:.3f}  final {t[-1]:.3f}  "
+      f"(range {t.min():.3f}-{t.max():.3f} m)")
+
+# --- did the recording bracket the drive? -----------------------------------
+clip = run.clipping(args.still)
+print(f"\nclipping check (stopped < {args.still} m/s, peak {run.speed.max():.2f} m/s)")
+print(f"  frames at rest before motion: {clip['head']}   after motion: {clip['tail']}")
+if not clip["clipped"]:
+    print("  OK -- the recording brackets the drive at both ends.")
+else:
+    for where, s in clip["clipped"]:
+        print(f"  ** CLIPPED AT {where}: first/last frame speed {s:.2f} m/s, not ~0.")
+        print(f"     >= {1000*s*c['frame_duration']:.0f} mm of real motion is missing "
+              f"({100*s*c['frame_duration']/max(net,1e-9):.1f}% of the reported net).")
+    print("  Re-record with ~5 s at rest before and after. A late start looks")
+    print("  exactly like a scale error and is not one.")
+
+if args.profile:
+    print("\nspeed profile (one char per frame):")
+    ramp, sp = " .:!#", run.speed
+    hi = max(sp.max(), 1e-9)
+    bar = "".join(ramp[min(4, int(5 * s / hi))] for s in sp)
+    for i in range(0, len(bar), 74):
+        print(f"  {i:4d} |{bar[i:i+74]}")
+
+print(f"\nassembler         {run.assembler_stats}")
 
 if args.out:
-    np.save(args.out, xyz)
+    np.save(args.out, run.xyz)
     print(f"trajectory -> {args.out}")

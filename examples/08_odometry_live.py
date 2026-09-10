@@ -13,11 +13,26 @@ import numpy as np
 from l1_stream import LidarStream
 from l1_stream.frames import FrameAssembler
 from l1_stream.odometry import KissOdometry
+from l1_stream.offline import DEFAULTS
 
 logging.basicConfig(level=logging.INFO, format="%(message)s")
 
-assembler = FrameAssembler(frame_duration=0.2)
-odom = KissOdometry(voxel_size=0.15, max_range=25.0, min_range=0.25)
+# Take the settled configuration from l1_stream.offline. This script used to
+# hardcode voxel 0.25 / min_range 0.4 / deskew on -- values the offline tuning
+# had long since moved away from, so the ROBOT was running a configuration
+# nobody had validated. Never hardcode these again.
+assembler = FrameAssembler(
+    frame_duration=DEFAULTS["frame_duration"],
+    rotate_with_imu=DEFAULTS["rotate_with_imu"],
+)
+odom = KissOdometry(
+    voxel_size=DEFAULTS["voxel_size"],
+    max_range=DEFAULTS["max_range"],
+    min_range=DEFAULTS["min_range"],
+    deskew=DEFAULTS["deskew"],
+    initial_threshold=DEFAULTS["initial_threshold"],
+)
+logging.info("config %s", DEFAULTS)
 
 with LidarStream.for_history(2.0) as lidar:
     last_report = time.monotonic()
