@@ -18,3 +18,4 @@ recordings/
 *.bag
 outputs/
 *.l1raw
+*.png
