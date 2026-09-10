@@ -51,7 +51,7 @@ jobs:
 
       # [dev] only -- deliberately NOT [viz]. Open3D is a ~400 MB download that
       # needs a display, and tests/test_visualizer.py stubs it out anyway.
-      - run: pip install -e ".[dev]"
+      - run: pip install -e ".[dev,slam]"
 
       # -q and testpaths already come from [tool.pytest.ini_options].
       - run: pytest
