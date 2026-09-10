@@ -12,6 +12,7 @@ htmlcov/
 # a data release (Zenodo), not in git history.
 data/
 recordings/
+personal/
 *.ply
 *.pcd
 *.npz
