@@ -3,19 +3,20 @@
 [![CI](https://github.com/logibyte276/l1-stream/actions/workflows/ci.yml/badge.svg)](https://github.com/logibyte276/l1-stream/actions/workflows/ci.yml)
 
 A Python client for a **Unitree L1 LiDAR** streamed over UDP: packet parsing,
-thread-safe buffering, IMU-based orientation compensation, and an optional live
-Open3D view.
+thread-safe buffering, IMU-based orientation compensation, an optional live
+Open3D view, and — on top of that — wire-level recording/replay and **KISS-ICP
+LiDAR odometry**.
 
 Built for the awkward part of working with this sensor — a single scan packet
 carries at most 120 points, arriving at ~180 Hz on a separate datagram from the
 ~250 Hz IMU stream, so anything useful means buffering both and matching them by
 timestamp without losing packets when your consumer loop stutters.
 
-- **Pure Python, one hard dependency** — numpy. Open3D is optional, so the
-  package installs in seconds on a headless Jetson.
+- **Pure Python, one hard dependency** — numpy. Open3D and kiss-icp are
+  optional, so the package installs in seconds on a headless Jetson.
 - **No hardware needed to develop or test.** `pack_imu_packet` /
   `pack_scan_packet` build byte-identical datagrams in memory, so the whole
-  pipeline is testable offline. 81 tests, none of which touch a sensor.
+  pipeline is testable offline. Not one test touches a sensor.
 - **Importable, not just runnable.** Nothing opens a socket, spawns a thread, or
   creates a window at import time.
 
@@ -78,7 +79,7 @@ Then create `/etc/udev/rules.d/99-robot-serial.rules`:
 ```
 # Replace the IDs with what udevadm printed for YOUR devices.
 SUBSYSTEM=="tty", ATTRS{idVendor}=="10c4", ATTRS{idProduct}=="ea60", ATTRS{serial}=="0001", SYMLINK+="lidar"
-SUBSYSTEM=="tty", ATTRS{idVendor}=="1a86", ATTRS{idProduct}=="7523", SYMLINK+="mcu"
+SUBSYSTEM=="tty", ATTRS{idVendor}=="1a86", ATTRS{idProduct}=="7523", ATTRS{serial}=="mcu"
 ```
 
 ```bash
@@ -108,7 +109,11 @@ cd l1-stream
 pip install -e .            # core: numpy only
 pip install -e ".[viz]"     # + Open3D for the live viewer
 pip install -e ".[dev]"     # + pytest, scipy, ruff
+pip install -e ".[slam]"    # + kiss-icp, for the odometry pipeline
 ```
+
+The odometry tests **skip** without the `[slam]` extra — see
+[Development](#development).
 
 ### On aarch64 (Jetson): Python 3.10 and numpy<2
 
@@ -119,7 +124,7 @@ aarch64) with Python 3.10, numpy 1.26.4, and Open3D 0.18.0.
 conda create -n l1 python=3.10
 conda activate l1
 export PIP_CONSTRAINT=$(pwd)/constraints.txt
-pip install -e ".[viz,dev]"
+pip install -e ".[viz,dev,slam]"
 ```
 
 Two constraints, both driven by Open3D:
@@ -177,6 +182,15 @@ with LidarStream.for_history(2.0) as lidar:
         points = acc.get_points()   # (N, 3) float64, one common frame
 ```
 
+Record a drive, then replay it through odometry as many times as you like:
+
+```python
+from l1_stream.offline import replay
+
+run = replay("drive_01.l1raw")           # tuned config by default
+print(run.path_length, run.net_displacement, run.jitter_mm)
+```
+
 Live view:
 
 ```python
@@ -191,8 +205,88 @@ l1-monitor --port 12345              # throughput + drop counters
 l1-visualize --max-scans 200         # live Open3D window
 ```
 
-See `examples/` for four runnable scripts, including `04_offline_replay.py`
-which needs no hardware at all.
+`examples/` is numbered in the order you actually use it. **01–04** cover the
+library itself and need no odometry; `04_offline_replay.py` needs no hardware at
+all. **05–09** are the recording-and-odometry workflow, described next.
+
+---
+
+## Odometry
+
+```bash
+# 1. record
+python examples/05_record.py drive_01.l1raw --duration 60
+
+# 2. pre-flight -- is this rig fit to tune on?
+python examples/07_precheck.py pivot.l1raw        # self-hit radius, vibration
+python examples/07_precheck.py stationary.l1raw   # IMU drift, stream health
+
+# 3. tune offline against a DRIVE recording
+python examples/06_odometry_offline.py drive_01.l1raw --truth 5.0
+
+# 4. change exactly one thing and compare
+python examples/09_ablation.py drive_01.l1raw --ablate deskew
+
+# 5. only once the parameters are settled
+python examples/08_odometry_live.py
+```
+
+Replay is not paced, so a 60 s drive re-runs in a second or two. That is the
+whole reason to record before wiring odometry into the live loop.
+
+`07_precheck.py` wants **two different recordings** and tells you which checks
+each one supports. The self-hit test needs the car to rotate; the IMU drift test
+needs it to sit still. Those contradict, so the script classifies the recording
+and names what it skipped rather than printing a meaningless number.
+
+### One config, enforced
+
+Every tuned constant lives in **`src/l1_stream/config.py`** and nowhere else.
+`FrameAssembler` and `KissOdometry` take their signature defaults from it, so
+constructing either one bare gives the tuned configuration.
+
+```python
+DEFAULTS = {
+    "frame_duration":    0.2,    # 0.05 and 0.5 both measured worse
+    "rotate_with_imu":   True,   # ESSENTIAL: 32-126x worse on loop closure without
+    "voxel_size":        0.15,   # 0.10 also real-time viable; 0.15 keeps margin
+    "max_range":         25.0,   # trimming to 10 measurably hurt rotation
+    "min_range":         0.25,   # chassis measured at 0.2 m radius, plus margin
+    "deskew":            False,  # UNRESOLVED -- see Known limitations
+    "initial_threshold": 0.4,    # adaptive settles at 0.32-0.55
+}
+```
+
+`UNTUNED` in the same file holds parameters that are exposed but were never
+swept, listed separately so nobody mistakes *"it is in the config"* for
+*"somebody measured it"*.
+
+This is **enforced, not merely documented**. `tests/test_config.py` fails if a
+signature default drifts from `config.py`, or if any example writes a literal
+number for a tuned parameter — including as an `argparse` default.
+
+Why it needs enforcing: four scripts each grew their own copy of these constants
+and drifted apart. `08_odometry_live.py` — the one that drives the actual car —
+ran `voxel 0.25 / min_range 0.40 / deskew on` for weeks after tuning had moved
+all three. Every copy looked plausible in isolation, and their outputs looked
+comparable when they were not.
+
+### kiss-icp gotchas, all verified against 1.3.0
+
+- `register_frame(frame, timestamps)` returns `(frame, source)` — the processed
+  clouds, **not the pose**. The pose is `odom.last_pose`.
+- `mapping.voxel_size` defaults to `None`, which **crashes** `VoxelHashMap`.
+- Mutating the config after `KissICP(cfg)` is **inert**. `voxelize()` is the
+  lone exception; it reads the config live.
+- The deskew reference is the **end** of a frame, so per-point timestamps must
+  put `1.0` on the last point and the pose belongs to `t_end`.
+- The "adaptive threshold" is a rotation-error readout scaled roughly linearly
+  by `max_range`, not a distance you can reason about directly.
+- Frames must be **disjoint**. Overlapping frames bias ICP toward zero motion,
+  because the shared points already align at zero displacement.
+
+These are version-specific, which is why `[slam]` should pin narrowly rather
+than accept any 1.x.
 
 ---
 
@@ -200,17 +294,22 @@ which needs no hardware at all.
 
 | Module | Responsibility |
 |---|---|
+| `config.py` | `DEFAULTS` / `UNTUNED`. The single source of tuned constants. Imports nothing else. |
 | `protocol.py` | Wire format, dataclasses, parse **and pack** functions. Pure — no I/O, no threads, no state. |
 | `ring_buffer.py` | `RingBuffer`: thread-safe, bounded, drop-oldest. |
 | `receiver.py` | `LidarUDPReceiver`: blocking, one packet at a time. |
 | `stream.py` | `LidarStream`: background reader thread → two ring buffers. |
 | `rotation.py` | Quaternion math + `RotatedScanAccumulator`. |
+| `recording.py` | `DatagramRecorder` / `Replayer`: the raw wire, byte for byte. |
+| `frames.py` | `FrameAssembler`: disjoint frames with per-point timestamps. |
+| `odometry.py` | `KissOdometry`: frame in, pose out. |
+| `offline.py` | `replay()`: the one implementation of "run a recording through the pipeline". |
 | `visualizer.py` | `LiveVisualizer`. Lazily imports Open3D. |
 | `cli.py` | `l1-monitor`, `l1-visualize`. |
 
 The split exists so the parts you can test without hardware are separated from
-the parts you can't. `protocol.py`, `ring_buffer.py`, and `rotation.py` have no
-I/O at all and are fully covered by tests.
+the parts you can't. `protocol.py`, `ring_buffer.py`, `rotation.py`, `config.py`
+and `frames.py` have no I/O at all and are fully covered by tests.
 
 ### Wire format
 
@@ -271,6 +370,17 @@ Scans too old to ever match are dropped **and counted** in
 Matching is a binary search over sorted timestamps — O(S log I) — and the sort is
 not decorative: UDP does not guarantee delivery order.
 
+### Why frames are not accumulator output
+
+`RotatedScanAccumulator` exists to make a *picture*: a rolling window of the last
+N scans. Registration needs the opposite — **disjoint** frames carrying per-point
+times. Reusing the accumulator via `get_points()` + `reset()` fails three ways:
+the per-point timestamps are already gone, `reset()` also clears the pending
+queue (systematically discarding each frame's newest scans, uncounted), and frame
+spans would then follow your call cadence rather than capture time, which breaks
+the constant-velocity motion model. `FrameAssembler` re-does the IMU matching and
+cuts on capture time instead.
+
 ### Rotation
 
 `rotate_points` uses the vector form `v + 2w(q×v) + 2q×(q×v)`, which is ~15 flops
@@ -281,6 +391,16 @@ identity fallback for the degenerate all-zero case a sensor can emit during warm
 
 Each scan is rotated **once** on ingestion, not once per displayed frame, and the
 concatenated output is cached until something changes.
+
+### Recording the wire, not the objects
+
+A recording is only useful for debugging if it survives a change to the parser.
+Pickling `LidarScan` objects freezes today's interpretation of the bytes, so the
+first time you fix a parsing bug every old recording becomes a record of the bug.
+Storing datagrams keeps the recording authoritative — `parse_packet` runs at
+replay time, so a fixed parser retroactively fixes every file you already have.
+It also preserves the cases most worth studying: truncated datagrams from MTU
+fragmentation loss, non-zero padding slots, and unknown message types.
 
 ### Parsing
 
@@ -306,6 +426,9 @@ The reader thread helps despite the GIL because it spends nearly all its time
 blocked in `socket.recvfrom()`, which releases the GIL while it waits. It is doing
 waiting work, not CPU work competing with your loop.
 
+**KISS-ICP is CPU-only here.** There is no CUDA path, so the Orin's GPU sits idle
+during registration; runtime is governed by `voxel_size` and frame rate.
+
 ### Network sizing
 
 **Scan datagrams are 2904 bytes**, above the 1500-byte Ethernet MTU, so IP
@@ -318,15 +441,28 @@ check `l1-monitor` for a `dataSize` warning and consider a jumbo-frame MTU.
 
 ## Known limitations
 
+- **Straight-line odometry reads ~5% short.** The two drives with a hard physical
+  stop agree closely: 5 m reads 4.72 (−5.6%), 7 m reads 6.64 (−5.1%). It is a
+  genuine multiplicative error, not a fixed offset. **Unresolved: whether the loss
+  is per metre** (a true scale error, which one calibration factor would fix) **or
+  per frame** (which it would not — the correction would then depend on speed).
+  No scale factor is applied anywhere; the raw estimate is what you get.
+- **Loop closure is blind to this.** A uniform shortfall cancels exactly around a
+  symmetric loop. A straight line measures scale; a loop measures heading. They
+  are not substitutes, and a good loop-closure number is not evidence of good
+  scale.
+- **Deskew does not replicate.** Measured better OFF in a room and on a loop,
+  better ON in a bare hallway. It is defaulted OFF because that is where the first
+  two measurements pointed — treat it as a coin the evidence has not landed on,
+  and run both ways.
 - **The IMU→LiDAR extrinsic is assumed to be identity.** The accumulator applies
   the IMU quaternion directly to point coordinates, which is only exactly right
-  if the IMU axes and point cloud axes coincide inside the sensor. This has not
-  been verified against Unitree documentation. Symptom if an offset does exist:
-  the accumulated floor plane comes out consistently tilted while the robot is
-  level.
-- **Rotation only, not translation.** Drive forward while accumulating and the
-  cloud still smears along the direction of travel. Removing that needs pose
-  estimation, not an IMU orientation.
+  if the IMU axes and point cloud axes coincide inside the sensor. This has never
+  been measured. Symptom if an offset does exist: the accumulated floor plane
+  comes out consistently tilted while the robot is level.
+- **Yaw is unobservable.** The L1's IMU is 6-axis, so it has no heading
+  reference and yaw drifts (~1.9°/min measured). Roll and pitch are
+  gravity-referenced and do not.
 - **`drop_zero_returns` is on by default** in the accumulator, on the reasoning
   that a return at exactly (0,0,0) is the sensor origin and therefore never real
   geometry. Whether the L1 emits them at all is unverified; the filter is
@@ -340,24 +476,35 @@ check `l1-monitor` for a `dataSize` warning and consider a jumbo-frame MTU.
 ## Development
 
 ```bash
-pip install -e ".[dev]"
+pip install -e ".[dev,slam]"
 pytest -q
-ruff check src tests
+ruff check .
 ```
 
-Install the `[dev]` extra rather than bare `pytest`. **scipy is a real test
-dependency, not a convenience** — without it `test_matches_scipy` skips, and the
-quaternion convention that everything downstream depends on goes unverified.
-Skips are reported in the pytest summary; a run that should be all-pass and
-shows `1 skipped` means the reference check did not execute.
+**`ruff check .`, not `ruff check src tests`.** CI lints the whole tree,
+including `examples/`. Linting the narrower pair passes locally and then fails in
+CI.
+
+**Install `[dev,slam]`, not bare `pytest`.** Two test dependencies are load-bearing
+and both fail *silently* by skipping:
+
+- **scipy** — without it `test_matches_scipy` skips, and the quaternion convention
+  everything downstream depends on goes unverified.
+- **kiss-icp** — without it the odometry tests skip via `pytest.importorskip`, and
+  the entire SLAM pipeline goes untested.
+
+Skips are reported in the pytest summary. A run that should be all-pass and shows
+`N skipped` means that many checks did not execute. **CI currently installs only
+`.[dev]`**, so the kiss-icp tests are skipping there — worth fixing in `ci.yml`
+before trusting a green badge on odometry changes.
 
 On aarch64, set `PIP_CONSTRAINT` before installing (see [Install](#install)) or
 the dev install can pull numpy 2 and break the `[viz]` extra.
 
-The package declares `requires-python = ">=3.10"` but is currently tested only on
-Python 3.10 / aarch64 — there is no CI yet. The Python 3.10 / numpy<2 pairing
-described above is an **aarch64 deployment constraint, not a package
-requirement**: on x86_64 the `[viz]` extra is unconstrained.
+CI runs ruff on 3.12, pytest on 3.10/3.11/3.12, and a `python -m build` +
+`twine check` packaging job. The Jetson deployment constraints (Python 3.10,
+numpy<2) are an **aarch64 deployment constraint, not a package requirement** — on
+x86_64 the `[viz]` extra is unconstrained.
 
 ## License
 

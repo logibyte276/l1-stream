@@ -28,6 +28,8 @@ The visualiser is not imported here: pulling it in eagerly would make
 Jetsons. Import :mod:`l1_stream.visualizer` explicitly when you want it.
 """
 
+from importlib.metadata import PackageNotFoundError, version
+
 from .frames import Frame, FrameAssembler
 from .odometry import KissOdometry  # safe: kiss_icp imports lazily
 from .protocol import (
@@ -56,7 +58,10 @@ from .rotation import (
 )
 from .stream import LidarStream
 
-__version__ = "0.1.0"
+try:
+    __version__ = version("l1-stream")
+except PackageNotFoundError:          # running from a source tree, not installed
+    __version__ = "0.1.0+unknown"
 
 __all__ = [
     "__version__",
