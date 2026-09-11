@@ -32,7 +32,7 @@ Every value's justification lives in claude/slam-results.md.
 
 from __future__ import annotations
 
-__all__ = ["DEFAULTS", "UNTUNED"]
+__all__ = ["DEFAULTS", "SCALE_FACTOR", "UNTUNED"]
 
 #: Measured on hardware. Change a value HERE and the whole pipeline follows.
 DEFAULTS = {
@@ -43,45 +43,76 @@ DEFAULTS = {
     # registration
     "voxel_size": 0.15,         # 0.10 also real-time viable; 0.15 keeps margin
     "max_range": 25.0,          # trimming to 10 measurably hurt rotation
-    "min_range": 0.25,          # chassis measured at 0.2 m radius, plus margin
-    # DISPUTED, and the current value is the weakest of the three measurements.
-    # Straight-line drives, net displacement vs a tape measure:
+    "min_range": 0.25,          # clears the MEASURED 0.19 m self-hit radius
+    # False on the LOOP evidence. Loop closure is the right basis here because
+    # its ground truth is exactly zero -- no tape measure, no judgement about
+    # where the car stopped -- which is the failure mode that invalidated three
+    # of the five line drives.
     #
-    #   recording        truth      ON              OFF             margin
-    #   room, line       5.0 m      4.870 (-130mm)  4.890 (-110mm)  20 mm  OFF
-    #   hallway, line    7.0 m      6.770 (-230mm)  6.640 (-360mm)  130 mm ON
-    #   closed loop      --         0.2% of path    0.1% of path    0.1 pp OFF
+    #   recording       metric       deskew ON   deskew OFF   winner
+    #   loop_drive_1    loop error   0.030 m     0.007 m      OFF, 4.3x
+    #   loop_drive_2    loop error   0.068 m     0.048 m      OFF, 1.4x
     #
-    # The 20 mm margin is the L1's own single-point accuracy (+/-20 mm), so that
-    # row is a TIE read at the noise floor, not a win. Weighted by margin this
-    # is one real result (ON) against two ties -- the opposite of how it reads
-    # if you just count rows.
+    # ON also lengthens the path on both (18.59 vs 17.61; 38.89 vs 36.15), i.e.
+    # it is adding jitter, which is the mechanism behind the worse closure.
     #
-    # Worse, the two line drives changed SCENE and DISTANCE together, so neither
-    # is isolated. A straight line measures scale, and the shapes differ:
-    # ON is -130 -> -230 mm over 5 -> 7 m (1.77x, ~scale-shaped); OFF is
-    # -110 -> -360 mm (3.27x, superlinear -- neither a fixed offset nor a scale
-    # error). Two points cannot separate offset from scale: the fit returns a
-    # physically impossible negative offset for both conditions.
+    # THE KNOWN EXCEPTION -- a featureless hallway, 7 m line, truth 7.0 m:
     #
-    # Working hypothesis: a bare corridor's walls run PARALLEL to travel, so
-    # they constrain lateral and vertical position but barely constrain
-    # along-track position. ICP has little to fix how far the car went forward,
-    # falls back on the prior, and under-reads -- exactly the -5.14%. Deskew's
-    # constant-velocity model supplies precisely that missing along-track
-    # information, which predicts its benefit tracks along-track degeneracy:
-    # ~0 in a cluttered room (20 mm, seen), large in a corridor (130 mm, seen),
-    # and growing with distance in a corridor.
+    #   line_drive_7m   net displ.   6.77 m      6.64 m       ON, by 130 mm
     #
-    # THE TEST: 5 m and 7 m in the SAME corridor, both conditions. Four runs.
-    # Separates distance from scene and gives open item 1 a second distance.
+    # That is the largest margin in the whole dataset and it goes the other way.
+    # A corridor's walls run PARALLEL to travel: they pin lateral and vertical
+    # position and barely constrain ALONG-TRACK position, so ICP has little to
+    # fix how far the car went forward and falls back on the prior. Deskew's
+    # constant-velocity model supplies exactly that. Note ON made the path
+    # SHORTER there (10.27 vs 10.69) while raising net -- straighter, not
+    # inflated, so "deskew just adds distance" does not explain it.
     #
-    # Left at False pending that test, but note KISS-ICP's own default is True
-    # and True is the more defensible setting if a result has to be justified.
-    # Flipping it is a one-word change on the line below.
+    # Loop closure is provably BLIND to scale error (a uniform scale cancels
+    # around a symmetric loop), so the loops cannot see this effect at all.
+    # Deciding on loops alone means using the metric that structurally cannot
+    # detect the corridor result. Both findings can be true at once.
+    #
+    # THE TEST, and it needs the scale factor first: the LiDAR under-reads
+    # distance by ~5.3% (see SCALE_FACTOR below). The 130 mm may be deskew
+    # partially compensating for that bias. Apply the correction, then re-run
+    # the corridor ablation -- two 06_odometry_offline runs one flag apart. If
+    # the margin collapses, OFF wins on every metric and this exception closes.
+    #
+    # KISS-ICP's own default is True. Flipping is a one-word change below.
     "deskew": False,
     "initial_threshold": 0.4,   # adaptive settles at 0.32-0.55, so the seed is right
 }
+
+#: Metric calibration. The LiDAR consistently UNDER-reads distance travelled.
+#:
+#: Measured on the only two line drives with trustworthy ground truth -- a
+#: suitcase at the 0 mark so the car physically stops at zero, with the SAME
+#: reference (front wheels) at both ends:
+#:
+#:     truth 5.0 m -> measured 4.72 m    scale 1.0593
+#:     truth 7.0 m -> measured 6.64 m    scale 1.0542
+#:     least squares through the origin  scale 1.0559   (under-reads 5.30%)
+#:
+#: There is NO fixed-offset term, and this is geometry rather than a fitting
+#: choice: the LiDAR is rigidly mounted, so on a straight line it travels
+#: exactly as far as the front wheels do. An offset could only appear if the
+#: start and end references were different parts of the car; they were not.
+#:
+#: That matters for how much to trust this. Forcing offset to zero leaves ONE
+#: free parameter against TWO measurements -- a spare degree of freedom -- and
+#: the residuals come out at -16 mm and +11 mm, both inside the L1's own
+#: +/-20 mm point accuracy. An earlier offset+scale fit matched exactly only
+#: because it had nothing left over to be wrong with.
+#:
+#: NOT APPLIED ANYWHERE. Trajectories out of KissOdometry are uncorrected.
+#: This is a documented constant so the correction is applied consistently and
+#: derived once, not re-guessed per script.
+#:
+#: BEFORE RELYING ON IT: validate at a third distance (10 m), and re-derive
+#: after any change to the LiDAR mount -- it came off and was re-glued on
+#: 2026-09-08, so this number describes the post-09-08 robot only.
+SCALE_FACTOR = 1.0559
 
 #: Exposed but never swept on this rig. Listed separately so nobody mistakes
 #: "it is in DEFAULTS" for "somebody measured it".

@@ -136,3 +136,84 @@ def test_deskew_path_runs_and_agrees_broadly_with_no_deskew():
     off, _a2, _p2, _s2 = run(speed=0.5, seconds=4.0, deskew=False)
     assert abs(on.path_length() - off.path_length()) < 0.5
     assert on.trajectory()[-1][0] > 1.0 and off.trajectory()[-1][0] > 1.0
+
+
+def test_register_keeps_the_preprocessed_cloud_not_the_raw_frame():
+    """A map must be built from the points the POSE describes.
+
+    KISS-ICP's register_frame returns the frame after its own motion
+    compensation and range cropping. Discarding it and mapping from the raw
+    frame puts chassis self-hits below min_range into the map, and -- with
+    deskew on -- points that were never motion-compensated.
+    """
+    import numpy as np
+
+    from l1_stream.frames import Frame
+    from l1_stream.odometry import KissOdometry
+
+    pytest.importorskip("kiss_icp")
+
+    odom = KissOdometry(min_range=1.0, max_range=20.0, deskew=False)
+    assert odom.last_preprocessed is None
+
+    rng = np.random.default_rng(0)
+    far = rng.uniform(-10, 10, (3000, 3))
+    far = far[np.linalg.norm(far, axis=1) > 2.0]
+    close = rng.uniform(-0.3, 0.3, (200, 3))       # chassis self-hits
+    pts = np.vstack([far, close])
+    frame = Frame(points=np.ascontiguousarray(pts),
+                  timestamps=np.linspace(0, 1, len(pts)),
+                  t_start=0.0, t_end=0.2, n_scans=1)
+
+    odom.register(frame)
+    kept = odom.last_preprocessed
+    assert kept is not None
+    r = np.linalg.norm(kept, axis=1)
+    assert r.min() >= 1.0, "points inside min_range survived into the map cloud"
+    assert r.max() <= 20.0
+    assert len(kept) < len(pts), "nothing was cropped -- preprocess was skipped"
+
+
+def test_map_deskew_is_independent_of_registration_deskew():
+    """A map wants deskew even where registration measured fine without it.
+
+    Intra-frame smear is speed*frame_duration -- 100 mm at 0.5 m/s. That is
+    BELOW the 0.15 m registration voxel (absorbed) but 3.3x the 0.03 m map
+    voxel (fully visible as thickened walls).
+    """
+    import numpy as np
+
+    from l1_stream.frames import Frame
+    from l1_stream.odometry import KissOdometry
+
+    pytest.importorskip("kiss_icp")
+    rng = np.random.default_rng(1)
+    pts = rng.uniform(-8, 8, (2500, 3))
+    pts = np.ascontiguousarray(pts[np.linalg.norm(pts, axis=1) > 1.5])
+    def mk():
+        return Frame(points=pts.copy(),
+                     timestamps=np.linspace(0, 1, len(pts)),
+                     t_start=0.0, t_end=0.2, n_scans=1)
+
+    # KissOdometry defaults to following `deskew` -- constructing it bare must
+    # not silently allocate a second preprocessor nobody asked for.
+    bare = KissOdometry(deskew=False, min_range=1.0)
+    assert bare.map_deskew is False
+
+    # replay() opts in with map_deskew=True when it is actually building a map
+    odom = KissOdometry(deskew=False, map_deskew=True, min_range=1.0)
+    assert odom.map_deskew is True
+    odom.register(mk())
+    odom.register(mk())
+    assert odom.last_map_cloud is not None
+
+    # explicitly matched -> the very same array, no second preprocess
+    same = KissOdometry(deskew=False, map_deskew=False, min_range=1.0)
+    assert same.map_deskew is False
+    same.register(mk())
+    assert same.last_map_cloud is same.last_preprocessed
+
+    # and the map cloud is still range-cropped either way
+    for o in (odom, same):
+        r = np.linalg.norm(o.last_map_cloud, axis=1)
+        assert r.min() >= 1.0

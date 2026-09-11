@@ -225,7 +225,8 @@ python examples/07_precheck.py stationary.l1raw   # IMU drift, stream health
 python examples/06_odometry_offline.py drive_01.l1raw --truth 5.0
 
 # 4. change exactly one thing and compare
-python examples/09_ablation.py drive_01.l1raw --ablate deskew
+python examples/06_odometry_offline.py drive_01.l1raw --no-deskew \
+    --tag ablated=deskew --tag condition=OFF --log personal/results.csv
 
 # 5. only once the parameters are settled
 python examples/08_odometry_live.py

@@ -4,6 +4,24 @@
     python examples/06_odometry_offline.py personal/drive.l1raw --truth 5.0
     python examples/06_odometry_offline.py personal/drive.l1raw --voxel-size 0.10
 
+AN ABLATION IS TWO RUNS OF THIS SCRIPT. Switch off exactly one component, hold
+everything else fixed, and the difference is attributable to that component:
+
+    python examples/06_odometry_offline.py personal/loop.l1raw --deskew \
+        --tag ablated=deskew --tag condition=ON  --log personal/results.csv
+    python examples/06_odometry_offline.py personal/loop.l1raw --no-deskew \
+        --tag ablated=deskew --tag condition=OFF --log personal/results.csv
+
+"Everything else fixed" is guaranteed by l1_stream.config, not by discipline:
+both runs take every other parameter from DEFAULTS, and every one is written to
+the results row, so a difference you did not intend is visible in the table.
+There used to be a separate 09_ablation.py enforcing this; it became redundant
+once the defaults lived in one place.
+
+ONE RUN IS ONE DATA POINT. Do 3-5 recordings before believing a result. The
+min_range "finding" on this project looked convincing on one recording and
+reversed on the second.
+
 Replay is unpaced, so a 60 s drive re-runs in seconds -- which is the whole
 reason to record before wiring odometry into the live loop.
 
@@ -29,7 +47,9 @@ import logging
 
 import numpy as np
 
+from l1_stream.metadata import RecordingMeta
 from l1_stream.offline import add_args, config_from_args, replay
+from l1_stream.results import ResultsLog, run_row
 
 logging.basicConfig(level=logging.WARNING, format="%(message)s")
 
@@ -37,14 +57,38 @@ p = argparse.ArgumentParser()
 p.add_argument("path")
 add_args(p)
 p.add_argument("--truth", type=float, default=None,
-               help="tape-measured displacement in m; prints scale error")
+               help="tape-measured displacement in m. Defaults to the "
+                    "sidecar's truth_m; pass this to override it.")
 p.add_argument("--still", type=float, default=0.15,
                help="speed below this (m/s) counts as stopped, for the "
                     "clipping check. Must clear the jitter floor "
                     "(~12 mm/frame parked at 0.2 s = 0.06 m/s).")
 p.add_argument("--profile", action="store_true", help="print a speed profile")
 p.add_argument("--out", default=None, help="save the trajectory as .npy")
+p.add_argument("--tag", action="append", default=[], metavar="KEY=VALUE",
+               help="Extra column(s) on the logged row. Repeatable. Use it to "
+                    "label whatever you are grouping by -- an ablation "
+                    "(--tag ablated=deskew --tag condition=ON), a repeat "
+                    "(--tag repeat=2), a re-run after the mount moved. Two runs "
+                    "differing in one flag ARE an ablation; the tags are what "
+                    "let you pair them in the table afterwards.")
+p.add_argument("--log", default=None,
+               help="append one row to this CSV. Capture the metric when it is "
+                    "computed -- a table you plan to rebuild later will not exist.")
 args = p.parse_args()
+
+meta = RecordingMeta.load_or_none(args.path)
+
+# Truth comes from the sidecar unless you say otherwise. Overriding is allowed
+# and sometimes right (a re-measured mark, a deliberate what-if) -- it just says
+# so, because a printed number and a logged number must never quietly come from
+# different ground truths.
+truth = args.truth
+if truth is None and meta is not None:
+    truth = meta.truth_m
+elif truth is not None and meta is not None and meta.truth_m not in (None, truth):
+    print(f"note: using --truth {truth} instead of the sidecar's "
+          f"{meta.truth_m} m\n")
 
 run = replay(args.path, **config_from_args(args))
 if len(run.xyz) < 2:
@@ -68,9 +112,10 @@ print(f"\npath length       {path_len:.3f} m")
 print(f"net displacement  {net:.3f} m")
 print(f"path / net        {path_len/max(net, 1e-9):.3f}   "
       f"<- jitter plus any real weaving")
-if args.truth:
-    print(f"scale error       {100*(net-args.truth)/args.truth:+.1f}%  "
-          f"vs a measured {args.truth:.2f} m   <- SCALE (open drives only)")
+if truth:
+    src = "sidecar" if args.truth is None else "--truth"
+    print(f"scale error       {100*(net-truth)/truth:+.1f}%  "
+          f"vs a measured {truth:.2f} m ({src})   <- SCALE (open drives only)")
 print(f"loop error        {net:.3f} m ({100*net/max(path_len,1e-9):.2f}% of path)"
       f"   <- HEADING, and only meaningful if you returned to the start")
 
@@ -108,8 +153,28 @@ if args.profile:
     for i in range(0, len(bar), 74):
         print(f"  {i:4d} |{bar[i:i+74]}")
 
+print(f"\ncompute           {run.ms_per_frame:.0f} ms/frame  "
+      f"{run.budget_pct:.0f}% of the {1000*c['frame_duration']:.0f} ms budget"
+      f"   on {run.replay_host}")
+if run.budget_pct > 100:
+    print("  ** OVER BUDGET on this machine -- it cannot keep up live here.")
+print("  Replay is unpaced, so this is COMPUTE, not latency, and it is this")
+print("  machine's compute. A desktop number does not clear the Orin.")
+
 print(f"\nassembler         {run.assembler_stats}")
 
 if args.out:
     np.save(args.out, run.xyz)
     print(f"trajectory -> {args.out}")
+
+if args.log:
+    if meta is None:
+        print("\nNOTE: no sidecar, so the row has blank speed/environment.")
+    tags = {}
+    for kv in args.tag:
+        if "=" not in kv:
+            raise SystemExit(f"--tag needs KEY=VALUE, got {kv!r}")
+        k, v = kv.split("=", 1)
+        tags[k] = v
+    ResultsLog(args.log).append(run_row(args.path, run, meta, truth=truth, **tags))
+    print(f"logged -> {args.log}" + (f"  tags {tags}" if tags else ""))

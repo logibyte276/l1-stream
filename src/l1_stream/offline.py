@@ -23,6 +23,8 @@ pipeline. Scripts do analysis, not plumbing.
 
 from __future__ import annotations
 
+import socket
+import time
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -85,6 +87,34 @@ class OdometryRun:
     thresholds: np.ndarray          # (K,) adaptive threshold after each frame
     config: dict
     assembler_stats: dict = field(default_factory=dict)
+    world_points: np.ndarray | None = None   # (M, 3) map; None unless map_voxel set
+    replay_seconds: float = 0.0              # wall time of the LOOP only
+    replay_host: str = ""                    # which machine did the replaying
+    map_deskew: bool | None = None           # was the MAP deskewed (may differ)
+
+    # --- cost ---
+
+    @property
+    def ms_per_frame(self) -> float:
+        """Compute cost per frame, in ms.
+
+        Timed around the registration loop only -- not imports, not kiss-icp
+        construction, not the analysis prints -- because those are once-per-run
+        and the live pipeline does not pay them per frame.
+        """
+        return 1000 * self.replay_seconds / max(len(self.xyz), 1)
+
+    @property
+    def budget_pct(self) -> float:
+        """``ms_per_frame`` as a share of the frame period. Over 100% means the
+        pipeline cannot keep up with the sensor ON THIS MACHINE.
+
+        Replay is unpaced, so this measures COMPUTE, not latency -- and it
+        measures it on whatever machine ran the replay. A number from a desktop
+        says nothing about whether the Orin can keep up. Check ``replay_host``
+        before quoting it as a real-time result.
+        """
+        return 100 * self.ms_per_frame / (1000 * self.config["frame_duration"])
 
     # --- basic geometry ---
 
@@ -164,11 +194,30 @@ class OdometryRun:
                 "clipped": clipped, "still": still}
 
 
-def replay(path: str, *, period: float = 0.05, **cfg) -> OdometryRun:
+def replay(
+    path: str,
+    *,
+    period: float = 0.05,
+    map_voxel: float | None = None,
+    map_deskew: bool = True,
+    **cfg,
+) -> OdometryRun:
     """Run one recording through the pipeline and return everything measured.
 
     ``cfg`` overrides :data:`DEFAULTS`; anything omitted takes the settled value,
     so a caller can never silently run an untuned configuration.
+
+    ``map_deskew`` controls deskew FOR THE MAP ONLY, independently of the
+    registration ``deskew`` setting, and defaults to True. See the note in
+    ``KissOdometry.__init__``: intra-frame smear is below the registration
+    voxel at survey speeds but several times the map voxel, so a map wants
+    deskew even where registration measured fine without it.
+
+    ``map_voxel`` additionally accumulates a world-frame point cloud into
+    :attr:`OdometryRun.world_points`, downsampled to that voxel. It lives here
+    rather than in a second replay loop because this project has already paid
+    once for having six copies of this loop drift apart. Off by default: a
+    60 s drive is over a million points and most callers only want metrics.
     """
     config = {**DEFAULTS, **cfg}
 
@@ -177,6 +226,8 @@ def replay(path: str, *, period: float = 0.05, **cfg) -> OdometryRun:
         rotate_with_imu=config["rotate_with_imu"],
     )
     odom = KissOdometry(
+        # None when not mapping: no second preprocessor, no per-frame cost.
+        map_deskew=map_deskew if map_voxel else None,
         voxel_size=config["voxel_size"],
         max_range=config["max_range"],
         min_range=config["min_range"],
@@ -185,13 +236,25 @@ def replay(path: str, *, period: float = 0.05, **cfg) -> OdometryRun:
     )
 
     spans, sizes, thresholds, deltas = [], [], [], []
+    chunks: list = []
+    t0 = time.perf_counter()
 
     def take(frame):
-        odom.register(frame)
+        pose = odom.register(frame)
         spans.append(frame.span)
         sizes.append(len(frame))
         thresholds.append(odom.threshold)
         deltas.append(np.array(odom.last_delta, copy=True))
+        if map_voxel:
+            # Map from odom.last_preprocessed, NOT frame.points. The raw frame
+            # still contains chassis self-hits below min_range and, when deskew
+            # is on, is not motion-compensated -- so placing it at this pose
+            # would put points into the map that the pose does not describe.
+            # last_pose maps that preprocessed cloud into the map, so this is
+            # correct whether or not the frame was IMU-rotated first.
+            pts = odom.last_map_cloud
+            if pts is not None and len(pts):
+                chunks.append(pts @ pose[:3, :3].T + pose[:3, 3])
 
     for scans, imu in Replayer(path).iter_batches(period=period):
         for frame in assembler.add(scans, imu):
@@ -199,6 +262,8 @@ def replay(path: str, *, period: float = 0.05, **cfg) -> OdometryRun:
     tail = assembler.flush()
     if tail is not None:
         take(tail)
+
+    elapsed = time.perf_counter() - t0
 
     return OdometryRun(
         xyz=odom.trajectory(),
@@ -209,4 +274,15 @@ def replay(path: str, *, period: float = 0.05, **cfg) -> OdometryRun:
         thresholds=np.asarray(thresholds),
         config=config,
         assembler_stats=assembler.stats(),
+        world_points=_build_map(chunks, map_voxel) if map_voxel else None,
+        replay_seconds=elapsed,
+        replay_host=socket.gethostname(),
+        map_deskew=odom.map_deskew if map_voxel else None,
     )
+
+
+def _build_map(chunks: list, voxel: float) -> np.ndarray:
+    from .mapmetrics import voxel_downsample
+    if not chunks:
+        return np.empty((0, 3), dtype=np.float64)
+    return voxel_downsample(np.concatenate(chunks, axis=0), voxel)
