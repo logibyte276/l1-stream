@@ -5,10 +5,15 @@ six places and drifted apart:
 
     06_odometry_offline   voxel 0.15  min_range 0.25  deskew off
     07_diagnostics        voxel 0.15  min_range 0.40  deskew off  (now 07_precheck)
-    09_ablation           voxel 0.25  min_range 0.40  deskew on
+    09_ablation           voxel 0.25  min_range 0.40  deskew on   (deleted)
     08_odometry_live      voxel 0.25  min_range 0.40  deskew on   <- the ROBOT
     KissOdometry.__init__ voxel 0.25  min_range 0.40  deskew on
     11_vibration          voxel 0.25                             (now 07_precheck)
+
+(Those names are history. 10_selfhit and 11_vibration were merged into
+07_precheck on 2026-09-09 and 09_ablation was deleted on 2026-09-10; the
+numbers 09 and 10 now belong to the map viewers, 09_map_offline and
+10_map_live.)
 
 The last one survived the first consolidation, because it was an argparse
 `default=` and the guard skipped those wholesale. It was judging "does this
@@ -108,6 +113,12 @@ DEFAULTS = {
 #: NOT APPLIED ANYWHERE. Trajectories out of KissOdometry are uncorrected.
 #: This is a documented constant so the correction is applied consistently and
 #: derived once, not re-guessed per script.
+#:
+#: OUT OF DATE (2026-09-11). The re-recorded room drives read 4.81 m on 5 m
+#: (twice, at 0.5 and 2.0 m/s) and about 2.91 m on 3 m, which fit ~1.037,
+#: not 1.0559. Nothing reads this constant: while the value is being
+#: re-established, try candidates with `06_odometry_offline --scale`, and
+#: update this line once one holds on drives it was not fitted to.
 #:
 #: BEFORE RELYING ON IT: validate at a third distance (10 m), and re-derive
 #: after any change to the LiDAR mount -- it came off and was re-glued on

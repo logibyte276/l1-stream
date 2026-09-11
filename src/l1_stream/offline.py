@@ -7,7 +7,7 @@ DEFAULTS. Those defaults drifted:
 
     06_odometry_offline   voxel 0.15  min_range 0.25  deskew off
     07_diagnostics        voxel 0.15  min_range 0.40  deskew off  (now 07_precheck)
-    09_ablation           voxel 0.25  min_range 0.40  deskew on
+    09_ablation           voxel 0.25  min_range 0.40  deskew on   (deleted)
     08_odometry_live      voxel 0.25  min_range 0.40  deskew on   <- the ROBOT
 
 Every one of those looks plausible in isolation, and the numbers they print

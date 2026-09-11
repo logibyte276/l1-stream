@@ -207,7 +207,14 @@ l1-visualize --max-scans 200         # live Open3D window
 
 `examples/` is numbered in the order you actually use it. **01–04** cover the
 library itself and need no odometry; `04_offline_replay.py` needs no hardware at
-all. **05–09** are the recording-and-odometry workflow, described next.
+all. **05–08** are the recording-and-odometry workflow, described next;
+**09–10** draw the map that odometry builds, offline and live; **12** measures
+map accuracy against walls.
+
+The numbering has one gap. `10_selfhit` and `11_vibration` were merged into
+`07_precheck` and `09_ablation` was deleted once the defaults lived in one
+place, so older notes that mention 09–11 mean those scripts, not today's
+09 and 10.
 
 ---
 
@@ -228,8 +235,12 @@ python examples/06_odometry_offline.py drive_01.l1raw --truth 5.0
 python examples/06_odometry_offline.py drive_01.l1raw --no-deskew \
     --tag ablated=deskew --tag condition=OFF --log personal/results.csv
 
-# 5. only once the parameters are settled
+# 5. look at the map it builds (map deskew is separate from --deskew)
+python examples/09_map_offline.py drive_01.l1raw --compare   # M flips map deskew
+
+# 6. only once the parameters are settled
 python examples/08_odometry_live.py
+python examples/10_map_live.py                              # the same, with a live map
 ```
 
 Replay is not paced, so a 60 s drive re-runs in a second or two. That is the
