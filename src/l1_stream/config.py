@@ -85,7 +85,7 @@ DEFAULTS = {
     # the margin collapses, OFF wins on every metric and this exception closes.
     #
     # KISS-ICP's own default is True. Flipping is a one-word change below.
-    "deskew": False,
+    "deskew": True,
     "initial_threshold": 0.4,   # adaptive settles at 0.32-0.55, so the seed is right
 }
 
