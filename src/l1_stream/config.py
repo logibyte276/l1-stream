@@ -47,7 +47,7 @@ DEFAULTS = {
 
     # registration
     "voxel_size": 0.15,         # 0.10 also real-time viable; 0.15 keeps margin
-    "max_range": 20.0,          # trimming to 10 measurably hurt rotation
+    "max_range": 25.0,          # trimming to 10 measurably hurt rotation
     "min_range": 0.25,          # clears the MEASURED 0.19 m self-hit radius
     # False on the LOOP evidence. Loop closure is the right basis here because
     # its ground truth is exactly zero -- no tape measure, no judgement about
