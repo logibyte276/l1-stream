@@ -57,7 +57,7 @@ def add_args(parser) -> None:
                         help="IMU pre-rotation. ON by default: 32-126x worse without.")
     parser.add_argument("--deskew", action=argparse.BooleanOptionalAction,
                         default=d["deskew"],
-                        help="OFF by default here (KISS-ICP's own default is ON). "
+                        help="KISS-ICP's own default is ON. "
                              "UNRESOLVED: better off in a room, better on in a "
                              "bare hallway. Worth running both ways every time.")
 
