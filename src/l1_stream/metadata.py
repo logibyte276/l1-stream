@@ -1,28 +1,21 @@
 """A recording that describes itself.
 
-WHY THIS EXISTS. Two data-interpretation failures on this project had the same
-cause -- metadata that lived in a filename or in someone's head instead of next
-to the data:
+A ``.l1raw`` file is the raw wire and deliberately carries no header -- that is
+what lets a later parser fix apply retroactively. So everything the bytes
+cannot tell you (what kind of drive it was, the ground-truth distance and how
+it was measured, speed, environment) goes in a sidecar JSON next to it,
+written at capture time while those facts are still known:
 
-  * ``line_drive_8m.l1raw`` was a 7 m drive. The name was wrong and nothing
-    else recorded the truth, so every number derived from it was ambiguous
-    between -5% and -17% error.
-  * A config comment read ``4.890 vs 4.870`` with no units, no truth value and
-    no recording name. Six weeks later nobody could check the subtraction, and
-    the conclusion it supported turned out to be backwards.
+    recordings/line_01.l1raw
+    recordings/line_01.l1raw.json     <- this
 
-A ``.l1raw`` is raw wire and deliberately carries no header -- that is what
-lets a later parser fix apply retroactively. So the context goes in a sidecar
-JSON next to it, written at capture time, when the truth is still known.
+Keeping this next to the data rather than in a filename or a notebook means a
+mislabelled or unlabelled recording is visible when you analyse it.
 
-    personal/line_drive_01.l1raw
-    personal/line_drive_01.l1raw.json     <- this
-
-The sidecar also captures SOFTWARE PROVENANCE: git commit, package versions,
-the config in force. ``slam-results.md`` already says to freeze the kiss-icp
-version for the duration of a study, because identical APIs do not guarantee
-identical numbers. Recording the version is how you find out afterwards whether
-you actually did.
+The sidecar also records software provenance: the l1-stream git commit (for
+source checkouts), package versions, Python and platform. Identical APIs do not
+guarantee identical numbers across kiss-icp releases, so the version used for
+each recording is worth having.
 """
 
 from __future__ import annotations
@@ -45,11 +38,26 @@ def sidecar_path(recording: str | Path) -> Path:
     return Path(str(recording) + ".json")
 
 
+_PACKAGE_DIR = Path(__file__).resolve().parent
+
+
 def _git_commit(start: Path | None = None) -> str | None:
-    """Short SHA of the repo containing this package, with ``-dirty`` if the
-    tree has uncommitted changes. None when git is unavailable."""
-    cwd = str(start or Path(__file__).resolve().parent)
+    """Short SHA of the l1-stream checkout this package runs from, with
+    ``-dirty`` if the tree has uncommitted changes.
+
+    None when git is unavailable or the package is not running from its own
+    source checkout (a normal pip install). Without that check, a package
+    installed into a virtualenv that sits inside some other git repository
+    would report that repository's commit as if it were l1-stream's.
+    """
+    cwd = str(start or _PACKAGE_DIR)
     try:
+        top = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            cwd=cwd, capture_output=True, text=True, timeout=5, check=True,
+        ).stdout.strip()
+        if (Path(top) / "src" / "l1_stream").resolve() != _PACKAGE_DIR:
+            return None
         sha = subprocess.run(
             ["git", "rev-parse", "--short", "HEAD"],
             cwd=cwd, capture_output=True, text=True, timeout=5, check=True,
@@ -99,22 +107,22 @@ class RecordingMeta:
     Every field is optional so that capturing something is never blocked on
     knowing everything, but the four that matter for an experiment are
     ``truth_m``, ``truth_method``, ``speed_mps`` and ``environment``. A drive
-    without ``truth_method`` is a drive whose ground truth you cannot audit
-    later -- which is exactly how three of five pilot line drives became
-    unusable.
+    without ``truth_method`` is a drive whose ground truth cannot be audited
+    later.
 
     ``truth_method`` carries HOW the truth was obtained, and that includes what
     it was measured from. A DISPLACEMENT is reference-free as long as the same
     part of the car sits at both marks (the sensor is rigid, so it travels
     exactly as far as the front wheels). A RANGE is measured from the sensor.
     Those two are not comparable, so say which one a value is --
-    "suitcase-at-0-mark" and "wall-range-from-sensor" are different methods.
+    "laser-displacement-front-wheels" and "wall-range-from-sensor" are
+    different methods.
     """
 
     # --- what the drive was ---
     kind: str | None = None            # "line" | "loop" | "pivot" | "stationary"
     truth_m: float | None = None       # tape/laser distance, or 0.0 for a closed loop
-    truth_method: str | None = None    # "suitcase-at-0-mark", "tape", "closed-loop"
+    truth_method: str | None = None    # "laser-measured", "tape", "closed-loop"
     speed_mps: float | None = None
     environment: str | None = None     # "cluttered-room" | "bare-corridor" | ...
     notes: str = ""

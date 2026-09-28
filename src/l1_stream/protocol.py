@@ -9,6 +9,9 @@ next to the sensor) sends datagrams shaped like:
     msgType 101 -> IMU packet,  payload matches "=dI4f3f3f"
     msgType 102 -> Scan packet, payload matches "=dII" + up to 120 * "fffffI"
 
+The IMU payload is 56 bytes on the wire: the 52 bytes above plus 4 bytes of
+C struct padding, which the parser ignores.
+
 This module is deliberately pure: no sockets, no threads, no global state. That
 makes every function here testable without hardware, which is why the ``pack_*``
 helpers exist alongside the ``parse_*`` ones -- they let tests (and a replay
@@ -67,6 +70,11 @@ HEADER_SIZE = _HEADER_STRUCT.size            # 8
 IMU_PAYLOAD_SIZE = _IMU_STRUCT.size          # 52
 SCAN_HEADER_SIZE = _SCAN_HEADER_STRUCT.size  # 16
 
+#: The SDK sends the IMU struct as laid out in C memory. Its double member
+#: makes the compiler pad the 52 bytes of fields to a multiple of 8, so the
+#: publisher transmits a 56-byte payload whose last 4 bytes are zero.
+_IMU_WIRE_PADDING = 4
+
 #: Size of a full scan datagram as the SDK publisher sends it (it always
 #: transmits all 120 point slots regardless of how many are valid). Exposed
 #: because it is larger than a 1500-byte Ethernet MTU and therefore gets IP
@@ -117,9 +125,8 @@ class LidarScan:
         double precision and will either copy silently or raise on float32.
 
         Set ``drop_zero_returns=True`` to strip points at exactly the origin.
-        The sensor emits those for rays that never came back, and they are not
-        real geometry -- feeding them to a registration algorithm creates a
-        fake dense blob at the sensor position that pins the scan match.
+        They cannot be real geometry, and a cluster of them would give a
+        registration algorithm a fake dense blob at the sensor position.
         """
         xyz = np.stack(
             [self.points["x"], self.points["y"], self.points["z"]], axis=1
@@ -256,13 +263,14 @@ def pack_imu_packet(
     angular_velocity: Sequence[float] = (0.0, 0.0, 0.0),
     linear_acceleration: Sequence[float] = (0.0, 0.0, 0.0),
 ) -> bytes:
-    """Build a byte-identical IMU datagram. ``quaternion`` is ``(x, y, z, w)``."""
+    """Build an IMU datagram identical to the SDK publisher's, including its
+    4 bytes of trailing struct padding. ``quaternion`` is ``(x, y, z, w)``."""
     payload = _IMU_STRUCT.pack(
         float(stamp), int(imu_id),
         *[float(v) for v in quaternion],
         *[float(v) for v in angular_velocity],
         *[float(v) for v in linear_acceleration],
-    )
+    ) + b"\x00" * _IMU_WIRE_PADDING
     return _HEADER_STRUCT.pack(MSG_TYPE_IMU, len(payload)) + payload
 
 

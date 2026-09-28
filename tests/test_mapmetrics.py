@@ -100,12 +100,12 @@ def test_fit_plane_rejects_bad_shapes_and_tiny_inputs():
 
 
 def test_distance_from_origin_recovers_a_known_wall_range():
-    """The case-A/case-B test in one number.
+    """Range bias versus registration error, in one number.
 
     Parked, the map origin is the sensor, so a fitted wall's distance from the
-    origin IS the range the LiDAR reported. Compare against a laser measurement:
-    short by ~5% means the ranges are biased; correct means the scale error is
-    in registration instead.
+    origin IS the range the LiDAR reported. Compared against a laser
+    measurement: short means the ranges are biased; correct means any distance
+    error while driving is in registration instead.
     """
     for truth in (2.5, 3.0, 7.0):
         f = fit_plane(wall(n=4000, noise=0.005, x=truth))
@@ -131,6 +131,6 @@ def test_ceiling_tilt_reads_out_as_degrees_off_horizontal():
     tilted = np.column_stack([xy, 2.4 + slope * xy[:, 0]])
     assert plane_angle_deg(fit_plane(tilted), up) == pytest.approx(1.5, abs=0.05)
 
-    # And a wall reads 90 against the same reference -- the check that would
-    # have caught the inverted formula this test was first written with.
+    # And a wall reads 90 against the same reference, which pins the
+    # direction of the tilt formula.
     assert plane_angle_deg(fit_plane(wall(x=3.0)), up) == pytest.approx(90.0, abs=0.1)

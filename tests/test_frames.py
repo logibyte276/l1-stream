@@ -173,9 +173,9 @@ def test_unsorted_imu_window_still_matches():
 def test_no_imu_rotation_runs_with_no_imu_stream_at_all():
     """The ablation must not inherit a dependency on the stream it ablates.
 
-    Before this was fixed, an unrotated scan still needed an IMU match to be
-    ingested, so a scan-only stream left every scan in _pending and no frame
-    ever closed -- a silent hang rather than a visible failure.
+    With rotation off, scans must be ingested without an IMU match; otherwise
+    a scan-only stream would leave every scan pending and no frame would ever
+    close -- a silent hang rather than a visible failure.
     """
     a = FrameAssembler(frame_duration=0.05, rotate_with_imu=False, min_points=1)
     frames = []
@@ -216,6 +216,17 @@ def test_rotate_with_imu_false_leaves_points_in_the_body_frame():
 
 
 # --- ordering and robustness ------------------------------------------------
+
+
+def test_pending_overflow_is_counted_not_silent():
+    # No IMU ever arrives, so every scan waits; the queue holds 5 and the
+    # 3 it pushes out must show up in scans_unmatched.
+    a = FrameAssembler(pending_maxlen=5)
+    for i in range(8):
+        a.add([marked_scan(1.0 + i * 0.005, i + 1)], [])
+    assert a.stats()["scans_pending"] == 5
+    assert a.stats()["scans_unmatched"] == 3
+
 
 def test_out_of_order_scans_are_sorted_before_frames_are_cut():
     a = FrameAssembler(frame_duration=0.05, min_points=1)

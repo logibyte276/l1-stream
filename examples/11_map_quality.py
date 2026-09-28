@@ -1,10 +1,10 @@
 """Map accuracy against the building itself. No motion capture required.
 
     # see what is in the map and pick bounding boxes off the printed extent
-    python examples/12_map_quality.py personal/room.l1raw
+    python examples/11_map_quality.py recordings/room.l1raw
 
     # then measure two walls and the corner between them
-    python examples/12_map_quality.py personal/room.l1raw \
+    python examples/11_map_quality.py recordings/room.l1raw \
         --plane  -1 3.0 -0.4   4 3.6 1.5 \
         --plane  3.0 -1 -0.4   3.6 4 1.5 \
         --expect-angle 90
@@ -138,9 +138,9 @@ if args.expect_range is not None:
         print(f"range {i}   measured {d:.3f} m  vs laser {args.expect_range:.3f} m"
               f"   {err:+.2f}%")
     print("  Only meaningful on a STATIONARY recording, where the map origin is")
-    print("  the sensor. ~-5% here means the RANGES are biased (scale the points);")
-    print("  ~0% means the ranges are fine and the scale error is in registration")
-    print("  (scale the poses). Those need opposite fixes.")
+    print("  the sensor. A clear negative error means the RANGES are biased (scale")
+    print("  the points); ~0% means the ranges are fine, so any distance error when")
+    print("  driving is in registration (scale the poses).")
 
 if args.level:
     print()

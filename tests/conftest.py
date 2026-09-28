@@ -9,9 +9,8 @@ absent -- they turn tests into SKIPs, not errors:
     kiss-icp   -> every odometry test skips, and the whole SLAM pipeline goes
                   untested.
 
-`pytest -q` reports "48 passed, 2 skipped" and exits 0. A human skims that and
-reads it as green. CI does the same, which is how ci.yml installing only
-`.[dev]` produced a passing badge over an untested odometry pipeline.
+`pytest -q` then reports something like "150 passed, 20 skipped" and exits 0,
+which is easy to read as green when the odometry pipeline never ran.
 
 So: set L1_NO_SKIPS=1 and any skip becomes a non-zero exit.
 

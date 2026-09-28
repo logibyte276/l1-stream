@@ -1,36 +1,28 @@
 """The odometry report. One command, every metric, from one recording.
 
-    python examples/06_odometry_offline.py personal/drive.l1raw
-    python examples/06_odometry_offline.py personal/drive.l1raw --truth 5.0
-    python examples/06_odometry_offline.py personal/drive.l1raw --voxel-size 0.10
-    python examples/06_odometry_offline.py personal/drive.l1raw --scale 1.037
-    python examples/06_odometry_offline.py personal/drive.l1raw --verbose
+    python examples/06_odometry_offline.py recordings/drive.l1raw
+    python examples/06_odometry_offline.py recordings/drive.l1raw --truth 5.0
+    python examples/06_odometry_offline.py recordings/drive.l1raw --voxel-size 0.10
+    python examples/06_odometry_offline.py recordings/drive.l1raw --scale 1.04
+    python examples/06_odometry_offline.py recordings/drive.l1raw --verbose
 
 AN ABLATION IS TWO RUNS OF THIS SCRIPT. Switch off exactly one component, hold
 everything else fixed, and the difference is attributable to that component:
 
-    python examples/06_odometry_offline.py personal/loop.l1raw --deskew \
-        --tag ablated=deskew --tag condition=ON  --log personal/results.csv
-    python examples/06_odometry_offline.py personal/loop.l1raw --no-deskew \
-        --tag ablated=deskew --tag condition=OFF --log personal/results.csv
+    python examples/06_odometry_offline.py recordings/loop.l1raw --deskew \
+        --tag ablated=deskew --tag condition=ON  --log results.csv
+    python examples/06_odometry_offline.py recordings/loop.l1raw --no-deskew \
+        --tag ablated=deskew --tag condition=OFF --log results.csv
 
 "Everything else fixed" is guaranteed by l1_stream.config, not by discipline:
 both runs take every other parameter from DEFAULTS, and every one is written to
 the results row, so a difference you did not intend is visible in the table.
-There used to be a separate 09_ablation.py enforcing this; it became redundant
-once the defaults lived in one place. (09 is now 09_map_offline.)
 
-ONE RUN IS ONE DATA POINT. Do 3-5 recordings before believing a result. The
-min_range "finding" on this project looked convincing on one recording and
-reversed on the second.
+ONE RUN IS ONE DATA POINT. Do 3-5 recordings before believing a result; a
+difference that looks convincing on one recording can reverse on the next.
 
 Replay is unpaced, so a 60 s drive re-runs in seconds -- which is the whole
 reason to record before wiring odometry into the live loop.
-
-This absorbs what used to be three separate scripts (an odometry summary, a
-per-frame rotation checker, and a speed/clipping profiler). They shared the
-same replay loop and had drifted apart on defaults; now the loop and the
-defaults both live in l1_stream.offline.
 
 READING THE OUTPUT. The headline line depends on what the sidecar says the
 recording is, because different drives answer different questions:
@@ -45,8 +37,8 @@ compute, and whether the recording caught the whole drive -- a late start looks
 EXACTLY like a scale error. Warnings appear only when something is wrong.
 --verbose adds frame, threshold and assembler details.
 
---scale multiplies the trajectory before anything is reported. It is for trying
-scale factors by hand and is NOT read from config.SCALE_FACTOR.
+--scale multiplies the trajectory before anything is reported, for trying a
+scale correction by hand. Nothing in the library applies one.
 """
 
 import argparse
@@ -70,12 +62,11 @@ p.add_argument("--truth", type=float, default=None,
 p.add_argument("--scale", type=float, default=1.0,
                help="Multiply the whole trajectory by this before reporting (1.0 = raw "
                     "KISS-ICP output). Distances, speeds, jitter, --out and the logged "
-                    "row all use the scaled trajectory; rotation is untouched. "
-                    "Experimental: NOT read from config.SCALE_FACTOR.")
+                    "row all use the scaled trajectory; rotation is untouched.")
 p.add_argument("--still", type=float, default=0.15,
                help="speed below this (m/s) counts as stopped, for the "
-                    "clipping check. Must clear the jitter floor "
-                    "(~12 mm/frame parked at 0.2 s = 0.06 m/s).")
+                    "clipping check. Must sit above the estimator's jitter "
+                    "while parked (see --verbose on a stationary recording).")
 p.add_argument("--verbose", action="store_true",
                help="also print frame, threshold and assembler details")
 p.add_argument("--profile", action="store_true", help="print a speed profile")
@@ -84,7 +75,7 @@ p.add_argument("--tag", action="append", default=[], metavar="KEY=VALUE",
                help="Extra column(s) on the logged row. Repeatable. Use it to "
                     "label whatever you are grouping by -- an ablation "
                     "(--tag ablated=deskew --tag condition=ON), a repeat "
-                    "(--tag repeat=2), a re-run after the mount moved. Two runs "
+                    "(--tag repeat=2), a re-run after a hardware change. Two runs "
                     "differing in one flag ARE an ablation; the tags are what "
                     "let you pair them in the table afterwards.")
 p.add_argument("--log", default=None,

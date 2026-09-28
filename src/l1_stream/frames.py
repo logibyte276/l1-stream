@@ -83,16 +83,18 @@ class FrameAssembler:
             for deskew to absorb.
         max_time_gap: Largest scan-to-IMU timestamp mismatch accepted.
         rotate_with_imu: Rotate each scan into the common IMU frame before
-            stacking. See the note in the module docstring of ``rotation`` --
-            and run this both ways, it is a real open question for this rig.
-            When False the IMU is not consulted at all, so the assembler runs
-            on a scan-only stream; ``imu_samples`` may be empty.
-        drop_zero_returns: Strip points at exactly the origin. These are rays
-            that never came back, and they pin a scan match with a fake dense
-            blob at the sensor position.
+            stacking, so rotation between frames is removed before ICP sees
+            it. On by default. When False the IMU is not consulted at all, so
+            the assembler runs on a scan-only stream; ``imu_samples`` may be
+            empty.
+        drop_zero_returns: Strip points at exactly the origin. They cannot be
+            real returns, and a cluster of them would give scan matching a
+            fake dense blob at the sensor position.
         min_points: Frames thinner than this are dropped and counted rather
             than fed to registration, where they would produce a bad pose
             instead of no pose.
+        pending_maxlen: How many scans may wait for their IMU sample. Scans
+            pushed out when this overflows are counted in ``scans_unmatched``.
     """
 
     def __init__(
@@ -136,6 +138,12 @@ class FrameAssembler:
         but more if the caller fell behind. Scans whose IMU sample has not
         arrived yet are held, not dropped.
         """
+        scans = list(scans)
+        # The pending queue is bounded; count what it evicts rather than
+        # losing it invisibly. A climbing count means no IMU is arriving.
+        overflow = len(self._pending) + len(scans) - self._pending.maxlen
+        if overflow > 0:
+            self.scans_unmatched += overflow
         self._pending.extend(scans)
         if not self._pending:
             return self._emit_ready()
@@ -195,10 +203,10 @@ class FrameAssembler:
     def _ingest(self, scan: LidarScan, quaternion: np.ndarray) -> None:
         p = scan.points
         xyz = np.stack([p["x"], p["y"], p["z"]], axis=1).astype(np.float64)
-        # `time` is documented as "relative time of this point from cloud
-        # stamp". If the publisher leaves it at zero the frame degrades to
-        # one timestamp per 120-point packet -- an error of at most 5.56 ms,
-        # which is tolerable. Check np.ptp(points["time"]) on real data.
+        # `time` is each point's offset from the packet stamp. If a publisher
+        # leaves it at zero, every point in a packet shares one timestamp --
+        # an error of at most one packet interval (~5.6 ms at 180 packets/s),
+        # which deskew tolerates. 07_precheck reports whether it is filled.
         t_abs = float(scan.stamp) + p["time"].astype(np.float64)
 
         if self.drop_zero_returns and len(xyz):
@@ -265,7 +273,7 @@ class FrameAssembler:
 
         lo, hi = float(t.min()), float(t.max())
         span = hi - lo
-        # Deskew reference is the END of the frame (measured, not assumed), so
+        # KISS-ICP deskews to the END of the frame (verified against 1.3), so
         # 1.0 must be the last point and the pose belongs to t_end.
         norm = (t - lo) / span if span > 1e-9 else np.ones(len(t), dtype=np.float64)
 

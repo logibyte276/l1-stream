@@ -61,7 +61,7 @@ from .stream import LidarStream
 try:
     __version__ = version("l1-stream")
 except PackageNotFoundError:          # running from a source tree, not installed
-    __version__ = "0.1.0+unknown"
+    __version__ = "0+unknown"
 
 __all__ = [
     "__version__",

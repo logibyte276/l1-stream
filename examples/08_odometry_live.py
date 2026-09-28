@@ -17,10 +17,9 @@ from l1_stream.offline import DEFAULTS
 
 logging.basicConfig(level=logging.INFO, format="%(message)s")
 
-# Take the settled configuration from l1_stream.offline. This script used to
-# hardcode voxel 0.25 / min_range 0.4 / deskew on -- values the offline tuning
-# had long since moved away from, so the ROBOT was running a configuration
-# nobody had validated. Never hardcode these again.
+# Take the tuned configuration from l1_stream.config (via offline.DEFAULTS),
+# so the live pipeline runs exactly what was validated offline.
+# tests/test_config.py fails if a literal value is written here instead.
 assembler = FrameAssembler(
     frame_duration=DEFAULTS["frame_duration"],
     rotate_with_imu=DEFAULTS["rotate_with_imu"],
@@ -39,7 +38,7 @@ with LidarStream.for_history(2.0) as lidar:
     try:
         while True:
             scans = lidar.scans.drain()
-            imu = lidar.imu.latest_n(500)
+            imu = lidar.recent_imu(lidar.imu_capacity)
             if not scans:
                 time.sleep(0.005)
                 continue

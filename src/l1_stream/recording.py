@@ -13,7 +13,7 @@ message types. Re-packing parsed objects would quietly launder all three.
 
 File format (little-endian, no compression):
 
-    magic   b"L1RAW\\x00"          8 bytes, includes a version byte
+    magic   b"L1RAW\\x00\\x00\\x01"  8 bytes; the last byte is the format version
     record  [float64 recv_time][uint32 nbytes][payload ...]   repeated
 
 ``recv_time`` is the receiving host's wall clock (``time.time()``) at the
@@ -154,6 +154,7 @@ class Replayer:
         error worth losing the rest of the drive over: the trailing partial
         record is dropped and :attr:`truncated` is set to True.
         """
+        self.truncated = False
         with self.path.open("rb") as fh:
             magic = fh.read(len(MAGIC))
             if magic[:5] != MAGIC[:5]:

@@ -61,11 +61,11 @@ class _FakeMeta:
     environment = "bare-corridor"
     speed_mps = 0.5
     truth_m = 2.1
-    truth_method = "suitcase-at-0-mark"
+    truth_method = "laser-measured"
 
 
 def test_run_row_folds_config_and_metrics_into_one_flat_row():
-    row = run_row("personal/line_01.l1raw", _FakeRun(), _FakeMeta())
+    row = run_row("recordings/line_01.l1raw", _FakeRun(), _FakeMeta())
     assert row["recording"] == "line_01.l1raw"
     assert row["cfg.voxel_size"] == 0.15
     assert row["environment"] == "bare-corridor"

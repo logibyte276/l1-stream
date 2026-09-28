@@ -1,4 +1,6 @@
 import json
+import shutil
+import subprocess
 
 import pytest
 
@@ -8,7 +10,7 @@ from l1_stream.metadata import RecordingMeta, provenance, sidecar_path
 def test_sidecar_appends_rather_than_replaces_suffix():
     # x.l1raw.json, never x.json -- so it sorts beside the recording and two
     # recordings differing only by extension cannot collide.
-    assert str(sidecar_path("personal/a.l1raw")).endswith("a.l1raw.json")
+    assert str(sidecar_path("recordings/a.l1raw")).endswith("a.l1raw.json")
     assert sidecar_path("a.l1raw").name == "a.l1raw.json"
 
 
@@ -16,14 +18,14 @@ def test_roundtrip_preserves_the_fields_that_matter(tmp_path):
     rec = tmp_path / "line_01.l1raw"
     rec.write_bytes(b"not really a recording")
     m = RecordingMeta(
-        kind="line", truth_m=7.0, truth_method="suitcase-at-0-mark",
+        kind="line", truth_m=7.0, truth_method="laser-measured",
         speed_mps=0.5,
         environment="bare-corridor", notes="the drive formerly misnamed 8m",
     )
     m.save(rec)
     back = RecordingMeta.load(rec)
     assert back.truth_m == 7.0
-    assert back.truth_method == "suitcase-at-0-mark"
+    assert back.truth_method == "laser-measured"
     assert back.environment == "bare-corridor"
     assert back.kind == "line"
 
@@ -55,3 +57,18 @@ def test_provenance_is_total_and_never_raises():
     # must always exist, or an analysis cannot tell "unknown" from "absent".
     for key in ("git_commit", "kiss_icp_version", "l1_stream_version"):
         assert key in p
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="git not installed")
+def test_git_commit_ignores_a_repository_that_is_not_l1_stream(tmp_path):
+    # A virtualenv inside someone else's git repo must not report that repo's
+    # commit as l1-stream's.
+    from l1_stream.metadata import _git_commit
+
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    subprocess.run(
+        ["git", "-c", "user.email=t@t", "-c", "user.name=t",
+         "commit", "-q", "--allow-empty", "-m", "x"],
+        cwd=tmp_path, check=True,
+    )
+    assert _git_commit(start=tmp_path) is None

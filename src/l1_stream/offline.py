@@ -1,28 +1,18 @@
-"""One place where "replay a recording through odometry" is implemented.
+"""Replay a recording through the odometry pipeline.
 
-WHY THIS EXISTS. Six scripts had grown their own copy of the same fifteen-line
-loop -- build a FrameAssembler, build a KissOdometry, drain the Replayer,
-register each frame, collect metrics -- and, worse, their own copy of the
-DEFAULTS. Those defaults drifted:
+:func:`replay` is the single implementation of "build a FrameAssembler and a
+KissOdometry, feed them a recording, collect the results". Every script that
+replays uses it, so they all run the same pipeline with the same
+configuration, and their numbers are directly comparable.
 
-    06_odometry_offline   voxel 0.15  min_range 0.25  deskew off
-    07_diagnostics        voxel 0.15  min_range 0.40  deskew off  (now 07_precheck)
-    09_ablation           voxel 0.25  min_range 0.40  deskew on   (deleted)
-    08_odometry_live      voxel 0.25  min_range 0.40  deskew on   <- the ROBOT
-
-Every one of those looks plausible in isolation, and the numbers they print
-look comparable when they are not. The live script -- the one that actually
-drives the car -- was running a configuration nobody had tuned since the first
-week. That is not a tidiness problem; it is the same silent-config-drift bug
-that has cost this project several wrong conclusions already.
-
-So: :data:`DEFAULTS` is the settled configuration, in one place.
-:func:`add_args` puts it on any argparse parser. :func:`replay` runs the
-pipeline. Scripts do analysis, not plumbing.
+:data:`DEFAULTS` (re-exported from :mod:`l1_stream.config`) is the tuned
+configuration. :func:`add_args` puts it on any argparse parser as flags, and
+:func:`config_from_args` reads it back.
 """
 
 from __future__ import annotations
 
+import argparse
 import socket
 import time
 from dataclasses import dataclass, field
@@ -38,7 +28,6 @@ __all__ = ["DEFAULTS", "OdometryRun", "add_args", "config_from_args", "replay"]
 # DEFAULTS is re-exported from .config so callers have one import to reach for.
 
 
-
 def add_args(parser) -> None:
     """Attach the standard odometry flags, carrying :data:`DEFAULTS`."""
     d = DEFAULTS
@@ -49,17 +38,14 @@ def add_args(parser) -> None:
     parser.add_argument("--initial-threshold", type=float,
                         default=d["initial_threshold"])
     # BooleanOptionalAction so --help shows the default and both directions
-    # exist. A store_true flag hides which way the default points, which is
-    # exactly how the deskew setting became ambiguous.
-    import argparse
+    # exist; a store_true flag hides which way the default points.
     parser.add_argument("--imu-rotation", action=argparse.BooleanOptionalAction,
                         default=d["rotate_with_imu"],
-                        help="IMU pre-rotation. ON by default: 32-126x worse without.")
+                        help="Rotate scans by the IMU orientation before registration.")
     parser.add_argument("--deskew", action=argparse.BooleanOptionalAction,
                         default=d["deskew"],
-                        help="KISS-ICP's own default is ON. "
-                             "UNRESOLVED: better off in a room, better on in a "
-                             "bare hallway. Worth running both ways every time.")
+                        help="KISS-ICP intra-frame motion compensation. Results vary "
+                             "by scene, so it is worth comparing both settings.")
 
 
 def config_from_args(args) -> dict:
@@ -111,7 +97,7 @@ class OdometryRun:
 
         Replay is unpaced, so this measures COMPUTE, not latency -- and it
         measures it on whatever machine ran the replay. A number from a desktop
-        says nothing about whether the Orin can keep up. Check ``replay_host``
+        says nothing about whether the robot's computer can keep up. Check ``replay_host``
         before quoting it as a real-time result.
         """
         return 100 * self.ms_per_frame / (1000 * self.config["frame_duration"])
@@ -204,21 +190,26 @@ def replay(
 ) -> OdometryRun:
     """Run one recording through the pipeline and return everything measured.
 
-    ``cfg`` overrides :data:`DEFAULTS`; anything omitted takes the settled value,
-    so a caller can never silently run an untuned configuration.
+    ``cfg`` overrides :data:`DEFAULTS` key by key; anything omitted takes the
+    tuned value. An unknown key raises ``TypeError`` rather than being
+    ignored, so a typo such as ``voxel=0.1`` cannot silently run the default.
 
     ``map_deskew`` controls deskew FOR THE MAP ONLY, independently of the
     registration ``deskew`` setting, and defaults to True. See the note in
-    ``KissOdometry.__init__``: intra-frame smear is below the registration
-    voxel at survey speeds but several times the map voxel, so a map wants
-    deskew even where registration measured fine without it.
+    ``KissOdometry.__init__``: intra-frame smear can be smaller than the
+    registration voxel but several times the map voxel.
 
     ``map_voxel`` additionally accumulates a world-frame point cloud into
-    :attr:`OdometryRun.world_points`, downsampled to that voxel. It lives here
-    rather than in a second replay loop because this project has already paid
-    once for having six copies of this loop drift apart. Off by default: a
-    60 s drive is over a million points and most callers only want metrics.
+    :attr:`OdometryRun.world_points`, downsampled to that voxel. Off by
+    default: a 60 s drive is over a million points and most callers only
+    want metrics.
     """
+    unknown = sorted(set(cfg) - set(DEFAULTS))
+    if unknown:
+        raise TypeError(
+            f"replay() got unknown config key(s) {unknown}; "
+            f"valid keys are {sorted(DEFAULTS)}"
+        )
     config = {**DEFAULTS, **cfg}
 
     assembler = FrameAssembler(

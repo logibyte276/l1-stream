@@ -1,14 +1,9 @@
-"""Guard against the config drifting apart again.
+"""Keep every entry point on the one configuration in l1_stream.config.
 
-This project has been bitten repeatedly by the same constants living in
-several places and quietly disagreeing. The worst instance: 08_odometry_live,
-the script that drives the actual robot, ran voxel 0.25 / min_range 0.40 /
-deskew ON for weeks after the tuning had moved all three, because it had its
-own hardcoded copy. `KissOdometry.__init__` had the same stale trio.
-
-Consolidating them into l1_stream.config only helps if something enforces it.
-These tests are that something. They need no hardware and no kiss-icp: the
-signatures are inspected, not called.
+A tuned constant copied into a script or a signature default can quietly
+disagree with the rest of the pipeline while every output still looks
+plausible. These tests fail when that happens. They need no hardware and no
+kiss-icp: the signatures are inspected, not called.
 """
 
 import ast
@@ -70,7 +65,14 @@ def test_defaults_and_untuned_do_not_overlap():
     assert not (set(config.DEFAULTS) & set(config.UNTUNED))
 
 
-# --- the guard that actually catches the 08_odometry_live class of bug ------
+def test_replay_rejects_unknown_config_keys():
+    # A typo must fail loudly, not silently run the default. The check runs
+    # before any file or kiss-icp access, so this needs neither.
+    with pytest.raises(TypeError, match="voxel"):
+        offline.replay("no-such-file.l1raw", voxel=0.10)
+
+
+# --- examples must not hardcode tuned values --------------------------------
 
 TUNED_KEYS = ("voxel_size", "min_range", "max_range", "frame_duration",
               "initial_threshold")
@@ -103,19 +105,12 @@ def test_examples_never_hardcode_tuned_values(path):
     """No example may write a literal number for a tuned parameter.
 
     They must come from l1_stream.config -- directly, or via add_args /
-    DEFAULTS. A bare literal here is exactly how the live script ended up
-    running an untuned configuration for weeks.
+    DEFAULTS -- so a script cannot run a different configuration from the
+    rest of the pipeline without it being visible.
 
-    THE HOLE THIS USED TO HAVE. add_argument calls were skipped wholesale, on
-    the reasoning that a flag default is where a value legitimately appears.
-    That is only true when the default is DEFAULTS[...]; a LITERAL there is
-    the same bug wearing argparse. 11_vibration.py sat at
-    `--voxel-size default=0.25` long after the pipeline had settled on 0.15,
-    so its "does this smear exceed a voxel?" verdict was measured against a
-    voxel 67% larger than the one actually in use -- and this test passed it.
-
-    So add_argument is now checked too, just differently: for a tuned option
-    the default must be a reference (DEFAULTS["voxel_size"]), never a literal.
+    add_argument calls are checked too: a flag default is a legitimate place
+    for a value only when it is a reference (DEFAULTS["voxel_size"]); a
+    literal there is the same problem expressed through argparse.
     """
     tree = ast.parse(path.read_text())
     offences = []

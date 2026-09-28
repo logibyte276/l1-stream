@@ -1,14 +1,12 @@
 """Map accuracy, measured against the building.
 
-WHY THIS EXISTS. Every metric this project had until now measured the
-TRAJECTORY -- loop closure, net displacement, path length. The research
-question is about the MAP, and the two come apart in a way that matters: a
-perfect trajectory built on biased ranges produces a map that is internally
-consistent and the wrong size. Loop closure cannot see that, by construction.
+Trajectory metrics (loop closure, net displacement, path length) say nothing
+direct about the map. A trajectory built on biased ranges can produce a map
+that is internally consistent and the wrong size, and loop closure cannot
+detect that.
 
-The trick for measuring a map indoors without a motion-capture rig is that
-buildings are already ground truth, for free and to a tolerance better than the
-sensor:
+Indoors, without a motion-capture system, the building itself is ground truth,
+to a tolerance better than the sensor:
 
     walls are FLAT          -> fit a plane, report RMS deviation
     corners are SQUARE      -> angle between two fitted planes, expect 90 deg
@@ -19,13 +17,13 @@ None of that needs a tape measure, and all of it is per-map rather than one
 endpoint number. Plane RMS in particular is the metric to watch: it responds to
 range noise AND to registration error, so it degrades when either does.
 
-    m = accumulate_map("personal/room.l1raw", map_voxel=0.03)
+    m = accumulate_map("recordings/room.l1raw", map_voxel=0.03)
     wall = m[box_mask(m, (-1, 3.0, -0.5), (4, 3.6, 1.5))]
     fit = fit_plane(wall)
     print(fit.rms, fit.n_inliers)
 
-CAVEAT WORTH KEEPING IN VIEW: the L1 sees only the hemisphere ABOVE itself, so
-z is weakly observable and floor planes will be sparse or absent. Prefer walls.
+Caveat: the L1 sees only the hemisphere above itself, so z is weakly
+observable and floor planes will be sparse or absent. Prefer walls.
 """
 
 from __future__ import annotations
@@ -64,18 +62,17 @@ def accumulate_map(path: str, *, map_voxel: float = 0.03,
                    map_deskew: bool = True, **cfg) -> np.ndarray:
     """Replay a recording and return the accumulated world-frame cloud.
 
-    Points come from ``KissOdometry.last_preprocessed`` -- the frame AS
-    KISS-ICP used it, deskewed (when enabled) and cropped to
-    [min_range, max_range] -- not the raw frame. That distinction is not
-    cosmetic: the raw frame carries ~273 chassis self-hits per frame below
-    min_range, and driving they land in fresh voxels at every pose, laying a
-    tube of false points along the whole trajectory.
+    Points come from the frame as KISS-ICP used it -- deskewed (when enabled)
+    and cropped to [min_range, max_range] -- not the raw frame. The raw frame
+    still contains chassis self-hits inside min_range, and while driving they
+    land in fresh voxels at every pose, laying a tube of false points along
+    the trajectory.
 
-    ``map_deskew`` defaults to True INDEPENDENTLY of the registration
+    ``map_deskew`` defaults to True independently of the registration
     ``deskew`` setting. Intra-frame smear is speed * frame_duration -- 100 mm
-    at 0.5 m/s -- which is below the 0.15 m registration voxel (absorbed, which
-    is why deskew=False measured fine on loop closure) but 3.3x the 0.03 m map
-    voxel, where it shows up as thickened walls and inflated plane RMS.
+    at 0.5 m/s with 0.2 s frames -- which can be smaller than the 0.15 m
+    registration voxel but is 3.3x the 0.03 m map voxel, where it shows up as
+    thickened walls and inflated plane RMS.
 
     Points are placed with ``last_pose``, which is the transform from that
     cloud into the map -- so this is correct whether or not the frames were
@@ -122,10 +119,10 @@ class PlaneFit:
         """Perpendicular distance from the map origin to the plane, metres.
 
         On a STATIONARY recording the origin is the sensor, so this is the
-        sensor-to-wall RANGE as the LiDAR reports it. Park at a laser-measured
-        distance and compare: if the wall reads ~5% short, the bias is in the
-        ranges themselves; if it reads correct, the ranges are fine and the
-        scale error lives in registration. Those two need opposite fixes.
+        sensor-to-wall RANGE as the LiDAR reports it. Compared against a
+        laser-measured distance, it separates two error sources: if the wall
+        reads short, the ranges themselves are biased; if it reads correctly
+        but driven distances do not, the error is in registration.
         """
         return float(abs(self.offset))
 
@@ -203,8 +200,8 @@ def plane_angle_deg(a: PlaneFit | np.ndarray, b: PlaneFit | np.ndarray) -> float
     """Angle between two planes in degrees, folded to [0, 90].
 
     Folded because a fitted normal's sign is arbitrary -- SVD may hand back
-    either direction, so an unfolded angle would report 90 or 270 at random for
-    the same corner.
+    either direction, so an unfolded angle could report either x or 180 - x
+    for the same pair of walls.
     """
     na = a.normal if isinstance(a, PlaneFit) else np.asarray(a, dtype=np.float64)
     nb = b.normal if isinstance(b, PlaneFit) else np.asarray(b, dtype=np.float64)
