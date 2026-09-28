@@ -1,0 +1,50 @@
+name: publish
+
+# Runs when a GitHub Release is published (pre-releases count too, so only
+# publish a release you want on PyPI). Uploads via PyPI Trusted Publishing:
+# no token is stored anywhere; PyPI trusts this workflow file, in this repo,
+# running in the "pypi" environment.
+on:
+  release:
+    types: [published]
+
+jobs:
+  build:
+    name: build sdist + wheel
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - run: pip install build twine
+      - run: python -m build
+      - run: twine check dist/*
+      # Refuse to publish if the release tag and the package version disagree,
+      # e.g. tag v1.0.0 on a commit whose pyproject.toml still says 0.2.0.
+      - name: tag matches pyproject version
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          ver=$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+          echo "tag=$tag  pyproject=$ver"
+          test "$tag" = "$ver"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dist
+          path: dist/
+
+  publish:
+    name: upload to PyPI
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: pypi
+    permissions:
+      id-token: write   # lets PyPI verify this workflow (Trusted Publishing)
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
