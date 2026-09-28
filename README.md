@@ -272,7 +272,7 @@ DEFAULTS = {
     "voxel_size":        0.15,   # 0.10 also real-time viable; 0.15 keeps margin
     "max_range":         25.0,   # trimming to 10 measurably hurt rotation
     "min_range":         0.25,   # clears the measured 0.19 m self-hit radius
-    "deskew":            True,   # evidence is mixed -- see Known limitations
+    "deskew":            True,   # evidence is mixed 
     "initial_threshold": 0.4,    # adaptive settles at 0.32-0.55
 }
 ```
@@ -461,6 +461,30 @@ fragments them into three. On loopback (MTU 65536) this never matters. Over a re
 network, losing **any one fragment** discards the whole scan. If you move the
 publisher to a separate machine and see scan loss, this is the first suspect —
 check `l1-monitor` for a `dataSize` warning and consider a jumbo-frame MTU.
+
+---
+
+## Known limitations
+
+- **Loop closure is blind to this.** A uniform shortfall cancels exactly around a
+  symmetric loop. A straight line measures scale; a loop measures heading. They
+  are not substitutes, and a good loop-closure number is not evidence of good
+  scale.
+- **The IMU→LiDAR extrinsic is assumed to be identity.** The accumulator applies
+  the IMU quaternion directly to point coordinates, which is only exactly right
+  if the IMU axes and point cloud axes coincide inside the sensor. This has never
+  been measured. Symptom if an offset does exist: the accumulated floor plane
+  comes out consistently tilted while the robot is level.
+- **Yaw is unobservable.** The L1's IMU is 6-axis, so it has no heading
+  reference and yaw drifts (~1.9°/min measured). Roll and pitch are
+  gravity-referenced and do not.
+- **`drop_zero_returns` is on by default** in the accumulator, on the reasoning
+  that a return at exactly (0,0,0) is the sensor origin and therefore never real
+  geometry. Whether the L1 emits them at all is unverified; the filter is
+  harmless either way.
+- The Open3D window path is **not covered by tests** — it needs a display. Every
+  non-GUI path is. On a Jetson the GUI additionally needs full OpenGL, which is
+  not available over a plain SSH session.
 
 ---
 
