@@ -1,0 +1,22 @@
+cff-version: 1.2.0
+message: "If you use l1-stream in your research, please cite it using the metadata below."
+title: "l1-stream: a Python client for the Unitree L1 LiDAR"
+type: software
+authors:
+  - family-names: Shu
+    given-names: Chunyee
+    # orcid: "https://orcid.org/0000-0000-0000-0000"
+version: 1.0.0
+license: MIT
+repository-code: "https://github.com/logibyte276/l1-stream"
+abstract: >-
+  A Python UDP client for the Unitree L1 LiDAR: packet parsing, thread-safe
+  buffering, IMU rotation compensation, raw-datagram recording and replay,
+  and a KISS-ICP odometry pipeline with map-quality metrics.
+keywords:
+  - lidar
+  - unitree
+  - robotics
+  - point cloud
+  - lidar odometry
+  - kiss-icp
