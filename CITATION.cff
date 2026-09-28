@@ -5,7 +5,7 @@ type: software
 authors:
   - family-names: Shu
     given-names: Chunyee
-    # orcid: "https://orcid.org/0000-0000-0000-0000"
+    orcid: "https://orcid.org/0009-0007-1910-719X"
 version: 1.0.0
 license: MIT
 repository-code: "https://github.com/logibyte276/l1-stream"
