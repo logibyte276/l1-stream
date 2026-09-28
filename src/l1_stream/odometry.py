@@ -51,9 +51,8 @@ class KissOdometry:
     def __init__(
         self,
         *,
-        # Defaults come from l1_stream.config so that constructing this class
-        # bare gives the TUNED configuration. They used to be written out here
-        # and had drifted three values away from the rest of the pipeline.
+        # Defaults come from l1_stream.config, so constructing this class bare
+        # gives the tuned configuration.
         voxel_size: float = DEFAULTS["voxel_size"],
         max_range: float = DEFAULTS["max_range"],
         min_range: float = DEFAULTS["min_range"],
@@ -73,20 +72,17 @@ class KissOdometry:
         if min_range >= max_range:
             raise ValueError("min_range must be < max_range")
 
-        # MAP DESKEW IS A SEPARATE QUESTION FROM REGISTRATION DESKEW.
+        # Map deskew is a separate setting from registration deskew.
         #
-        # Intra-frame smear is speed * frame_duration -- 100 mm at 0.5 m/s.
-        # Registration voxelizes at 0.15 m, so at survey speeds the smear is
-        # SMALLER than the voxel and gets absorbed; that is why deskew=False
-        # measured fine on loop closure. A map accumulates at 0.03 m, where the
-        # same 100 mm is 3.3x the voxel and fully visible as thickened walls.
+        # Intra-frame smear is speed * frame_duration: 100 mm at 0.5 m/s with
+        # 0.2 s frames. Registration voxelizes at voxel_size (0.15 m by
+        # default), so at moderate speed the smear is smaller than a voxel and
+        # is absorbed. A map built at 0.03 m resolves the same 100 mm as
+        # thickened walls, so a map benefits from deskew even when
+        # registration does not need it.
         #
-        # So the map deskews by default regardless of the registration setting.
-        # It only stops being worth it when the smear drops below the noise
-        # deskew injects (last_delta carries ~25 mm/frame of jitter), i.e.
-        # below roughly 0.125 m/s -- essentially parked.
-        #
-        # Set map_deskew=False to compare, or None to follow `deskew`.
+        # map_deskew=None follows `deskew`; True or False overrides it for the
+        # map cloud only (see last_map_cloud).
         cfg = KISSConfig()
         cfg.data.max_range = float(max_range)
         cfg.data.min_range = float(min_range)
@@ -98,9 +94,10 @@ class KissOdometry:
         cfg.registration.max_num_iterations = int(max_num_iterations)
         cfg.registration.convergence_criterion = float(convergence_criterion)
 
-        # Nothing above may change after this line. See the module docstring.
+        # KissICP reads cfg once, here; changing it afterwards has no effect.
+        # That is why it is kept private.
         self._odom = KissICP(cfg)
-        self.config = cfg
+        self._config = cfg
 
         self.map_deskew = deskew if map_deskew is None else bool(map_deskew)
         self._map_pre = None
@@ -113,10 +110,10 @@ class KissOdometry:
 
         self.poses: list[np.ndarray] = []
         self.stamps: list[float] = []
-        #: The last frame AS KISS-ICP ACTUALLY USED IT -- deskewed (when
-        #: enabled) and cropped to [min_range, max_range]. Kept because
-        #: register_frame returns it and throwing it away means anything built
-        #: downstream (a map, say) would use points the estimator never saw.
+        #: The last frame as KISS-ICP actually used it: deskewed (when
+        #: enabled) and cropped to [min_range, max_range]. Anything built
+        #: downstream, such as a map, should use these points, because they
+        #: are the ones the pose describes.
         self.last_preprocessed: np.ndarray | None = None
         #: The last frame prepared for MAPPING. Identical to
         #: :attr:`last_preprocessed` unless ``map_deskew`` differs from
@@ -128,8 +125,8 @@ class KissOdometry:
     def register(self, frame) -> np.ndarray:
         """Register one frame and return the 4x4 pose as of ``frame.t_end``.
 
-        The pose timestamp is the END of the frame, not its midpoint: deskew
-        was measured to transform points into the last point's reference, so
+        The pose timestamp is the END of the frame, not its midpoint: KISS-ICP
+        deskews every point into the reference of the frame's last point, so
         that is the instant the pose describes.
 
         Also stashes :attr:`last_preprocessed` -- the frame after KISS-ICP's
@@ -160,14 +157,19 @@ class KissOdometry:
 
     @property
     def last_pose(self) -> np.ndarray:
-        return np.asarray(self._odom.last_pose, dtype=np.float64)
+        """Latest 4x4 pose, as a copy (modifying it cannot affect odometry)."""
+        return np.array(self._odom.last_pose, dtype=np.float64, copy=True)
 
     @property
     def last_delta(self) -> np.ndarray:
-        """Frame-to-frame motion. With IMU-rotated frames this should be close
-        to a pure translation -- a growing rotation here means the IMU's yaw is
-        drifting, which a 6-axis IMU cannot help."""
-        return np.asarray(self._odom.last_delta, dtype=np.float64)
+        """Latest frame-to-frame motion as a 4x4 transform, as a copy.
+
+        With IMU-rotated frames the rotation part is KISS-ICP's correction to
+        the IMU orientation, not the robot's turn, so it should stay small.
+        A steadily growing rotation here usually means IMU yaw drift, which a
+        6-axis IMU cannot correct on its own.
+        """
+        return np.array(self._odom.last_delta, dtype=np.float64, copy=True)
 
     @property
     def threshold(self) -> float:
@@ -181,6 +183,7 @@ class KissOdometry:
         return np.array([p[:3, 3] for p in self.poses], dtype=np.float64)
 
     def path_length(self) -> float:
+        """Total distance along the trajectory, in metres."""
         xyz = self.trajectory()
         if len(xyz) < 2:
             return 0.0
@@ -189,9 +192,10 @@ class KissOdometry:
     def loop_closure_error(self) -> float:
         """Distance from the last pose back to the first.
 
-        With no ground truth this is the most honest metric you have: drive a
-        closed loop back to the exact start point and this is your accumulated
-        drift, best read as a fraction of :meth:`path_length`.
+        Drive a closed loop back to the exact start point and this is the
+        accumulated drift, best read as a fraction of :meth:`path_length`. It
+        needs no ground truth, but it cannot detect a uniform scale error: a
+        uniform shortfall cancels around a closed loop.
         """
         xyz = self.trajectory()
         if len(xyz) < 2:

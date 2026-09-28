@@ -216,13 +216,8 @@ l1-visualize --max-scans 200         # live Open3D window
 [`examples/`](https://github.com/logibyte276/l1-stream/tree/main/examples) is numbered in the order you actually use it. **01–04** cover the
 library itself and need no odometry; `04_offline_replay.py` needs no hardware at
 all. **05–08** are the recording-and-odometry workflow, described next;
-**09–10** draw the map that odometry builds, offline and live; **12** measures
+**09–10** draw the map that odometry builds, offline and live; **11** measures
 map accuracy against walls.
-
-The numbering has one gap. `10_selfhit` and `11_vibration` were merged into
-`07_precheck` and `09_ablation` was deleted once the defaults lived in one
-place, so older notes that mention 09–11 mean those scripts, not today's
-09 and 10.
 
 ---
 
@@ -241,7 +236,7 @@ python examples/06_odometry_offline.py drive_01.l1raw --truth 5.0
 
 # 4. change exactly one thing and compare
 python examples/06_odometry_offline.py drive_01.l1raw --no-deskew \
-    --tag ablated=deskew --tag condition=OFF --log personal/results.csv
+    --tag ablated=deskew --tag condition=OFF --log results.csv
 
 # 5. look at the map it builds (map deskew is separate from --deskew)
 python examples/09_map_offline.py drive_01.l1raw --compare   # M flips map deskew
@@ -257,7 +252,8 @@ whole reason to record before wiring odometry into the live loop.
 `07_precheck.py` wants **two different recordings** and tells you which checks
 each one supports. The self-hit test needs the car to rotate; the IMU drift test
 needs it to sit still. Those contradict, so the script classifies the recording
-and names what it skipped rather than printing a meaningless number.
+(from the sidecar's `--kind` when there is one) and names what it skipped rather
+than printing a meaningless number.
 
 ### One config, enforced
 
@@ -267,15 +263,18 @@ constructing either one bare gives the tuned configuration.
 
 ```python
 DEFAULTS = {
-    "frame_duration":    0.2,    # 0.05 and 0.5 both measured worse
-    "rotate_with_imu":   True,   # ESSENTIAL: 32-126x worse on loop closure without
-    "voxel_size":        0.15,   # 0.10 also real-time viable; 0.15 keeps margin
-    "max_range":         25.0,   # trimming to 10 measurably hurt rotation
-    "min_range":         0.25,   # clears the measured 0.19 m self-hit radius
-    "deskew":            True,   # evidence is mixed 
-    "initial_threshold": 0.4,    # adaptive settles at 0.32-0.55
+    "frame_duration":    0.2,    # 0.05 s and 0.5 s both measured worse
+    "rotate_with_imu":   True,   # loop closure was 32-126x worse without it
+    "voxel_size":        0.15,   # 0.10 is also real-time on an Orin Nano; 0.15 keeps headroom
+    "max_range":         25.0,   # trimming to 10 m measurably hurt rotation
+    "min_range":         0.25,   # just outside the reference robot's 0.19 m self-hit radius
+    "deskew":            True,   # KISS-ICP's default; compare with --no-deskew
+    "initial_threshold": 0.4,    # the adaptive threshold settles at 0.32-0.55 m
 }
 ```
+
+`min_range` depends on your chassis: measure yours with `07_precheck.py` on a
+pivot recording.
 
 `UNTUNED` in the same file holds parameters that are exposed but were never
 swept, listed separately so nobody mistakes *"it is in the config"* for
@@ -285,11 +284,9 @@ This is **enforced, not merely documented**. `tests/test_config.py` fails if a
 signature default drifts from `config.py`, or if any example writes a literal
 number for a tuned parameter — including as an `argparse` default.
 
-Why it needs enforcing: several scripts each grew their own copy of these constants
-and drifted apart. `08_odometry_live.py` — the one that drives the actual car —
-ran `voxel 0.25 / min_range 0.40 / deskew on` for weeks after tuning had moved
-all three. Every copy looked plausible in isolation, and their outputs looked
-comparable when they were not.
+A constant copied into one script can quietly disagree with the rest of the
+pipeline while every output still looks plausible; the test makes that
+disagreement a failure instead.
 
 ### kiss-icp gotchas, all verified against 1.3.0
 
@@ -339,7 +336,7 @@ and `frames.py` have no I/O at all and are fully covered by tests.
 ```
 [msgType: uint32][dataSize: uint32][payload ...]
 
-  101  IMU   "=dI4f3f3f"                 → 52 bytes
+  101  IMU   "=dI4f3f3f" + 4 pad bytes   → 56 bytes
   102  Scan  "=dII" + 120 × "fffffI"     → 2896 bytes
 
   (payload sizes; add the 8-byte header for the datagram)
@@ -408,11 +405,11 @@ cuts on capture time instead.
 
 ### Rotation
 
-`rotate_points` uses the vector form `v + 2w(q×v) + 2q×(q×v)`, which is ~15 flops
-per point versus building a 3×3 matrix, worth it when you rotate one small scan at
-a time thousands of times a second. It is only a *rotation* for a unit quaternion —
-off-norm input scales every point by |q|² — so input is normalised, with an
-identity fallback for the degenerate all-zero case a sensor can emit during warm-up.
+`rotate_points` uses the vector form `v + 2w(q×v) + 2q×(q×v)`, equivalent to
+multiplying by the 3×3 matrix from `quaternion_to_matrix`. It is only a
+*rotation* for a unit quaternion — off-norm input scales every point by |q|² — so
+input is normalised, with an identity fallback for the degenerate all-zero case a
+sensor can emit during warm-up.
 
 Each scan is rotated **once** on ingestion, not once per displayed frame, and the
 concatenated output is cached until something changes.
@@ -451,7 +448,7 @@ The reader thread helps despite the GIL because it spends nearly all its time
 blocked in `socket.recvfrom()`, which releases the GIL while it waits. It is doing
 waiting work, not CPU work competing with your loop.
 
-**KISS-ICP is CPU-only here.** There is no CUDA path, so the Orin's GPU sits idle
+**KISS-ICP is CPU-only here.** There is no CUDA path, so on a Jetson the GPU sits idle
 during registration; runtime is governed by `voxel_size` and frame rate.
 
 ### Network sizing
@@ -466,8 +463,8 @@ check `l1-monitor` for a `dataSize` warning and consider a jumbo-frame MTU.
 
 ## Known limitations
 
-- **Loop closure is blind to this.** A uniform shortfall cancels exactly around a
-  symmetric loop. A straight line measures scale; a loop measures heading. They
+- **Loop closure cannot detect scale error.** A uniform shortfall in distance
+  cancels exactly around a symmetric loop. A straight line measures scale; a loop measures heading. They
   are not substitutes, and a good loop-closure number is not evidence of good
   scale.
 - **The IMU→LiDAR extrinsic is assumed to be identity.** The accumulator applies
@@ -480,8 +477,8 @@ check `l1-monitor` for a `dataSize` warning and consider a jumbo-frame MTU.
   gravity-referenced and do not.
 - **`drop_zero_returns` is on by default** in the accumulator, on the reasoning
   that a return at exactly (0,0,0) is the sensor origin and therefore never real
-  geometry. Whether the L1 emits them at all is unverified; the filter is
-  harmless either way.
+  geometry. None were seen in test recordings from the L1's SDK publisher; the
+  filter is harmless either way.
 - The Open3D window path is **not covered by tests** — it needs a display. Every
   non-GUI path is. On a Jetson the GUI additionally needs full OpenGL, which is
   not available over a plain SSH session.

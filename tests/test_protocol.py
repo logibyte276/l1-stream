@@ -30,6 +30,17 @@ def test_struct_sizes_match_c_layout():
     assert P.IMU_PAYLOAD_SIZE == 52   # double + uint32 + 10 floats
 
 
+def test_imu_packet_matches_the_wire_size():
+    # The SDK publisher sends the IMU struct with 4 bytes of C padding: a
+    # 64-byte datagram declaring a 56-byte payload. pack_imu_packet must
+    # reproduce that exactly, and the parser must ignore the padding.
+    packet = P.pack_imu_packet(1.0, 1, (0.0, 0.0, 0.0, 1.0))
+    assert len(packet) == 64
+    assert struct.unpack_from("=II", packet) == (P.MSG_TYPE_IMU, 56)
+    assert packet[-4:] == b"\x00" * 4
+    assert P.parse_packet(packet).quaternion == (0.0, 0.0, 0.0, 1.0)
+
+
 def test_imu_roundtrip():
     packet = P.pack_imu_packet(
         stamp=123.456, imu_id=42,

@@ -1,17 +1,12 @@
 """One row per run, in a CSV, instead of terminal scrollback.
 
-WHY THIS EXISTS. The pilot study's results lived in copied-and-pasted terminal
-output. That was enough to keep the findings, but it made three things
-impossible: you could not sort by a factor, you could not compute a mean across
-repeats, and when a machine was wiped the analysis had to be re-read by eye out
-of a document.
+A results table can be sorted by a factor, averaged across repeats, and
+survives the machine that produced it. Printed output can do none of those,
+and any sweep (several speeds x environments x repeats, each replayed at
+several settings) quickly produces more rows than anyone can track by hand.
 
-A factorial design makes that much worse. Three speeds x two environments x
-three repeats is 18 drives, and each one replays at four voxel sizes and two
-deskew settings -- 144 rows. That is a spreadsheet, not scrollback.
-
-    log = ResultsLog("personal/results.csv")
-    log.append(run_row)          # dict; new keys are absorbed, not dropped
+    log = ResultsLog("results.csv")
+    log.append(row)              # dict; new keys are absorbed, not dropped
 
 The header is the union of every key ever written. Adding a metric later
 rewrites the file with the new column and blanks for older rows, rather than
@@ -62,7 +57,7 @@ def run_row(path, run, meta=None, truth=None, **extra) -> dict:
         "threshold_final": round(float(run.thresholds[-1]), 4),
         "z_span_m": round(float(run.xyz[:, 2].max() - run.xyz[:, 2].min()), 4),
         # --- cost. replay_host is not optional context: a timing from a
-        # desktop says nothing about whether the Orin keeps up. ---
+        # desktop says nothing about whether an embedded board keeps up. ---
         "replay_host": getattr(run, "replay_host", None),
         "replay_seconds": round(getattr(run, "replay_seconds", 0.0), 3),
         "ms_per_frame": round(getattr(run, "ms_per_frame", 0.0), 2),

@@ -18,13 +18,12 @@ compensation across packets; it is complementary to, not a substitute for,
 the *intra-frame* deskewing that a registration algorithm does inside a single
 assembled frame using an estimated velocity.
 
-**Unverified assumption.** This code applies the IMU quaternion directly to
-point coordinates, which is only exactly right if the IMU axes and the point
-cloud axes coincide. Any fixed mounting offset between the two inside the L1
-would show up as a constant rotation error. I have not confirmed from Unitree
-documentation whether such an extrinsic exists for this sensor -- if your
-accumulated floor plane comes out consistently tilted while the robot is
-level, that is the first thing to check.
+**Assumption.** This code applies the IMU quaternion directly to point
+coordinates, which is only exactly right if the IMU axes and the point cloud
+axes coincide. Any fixed mounting offset between the two inside the L1 would
+show up as a constant rotation error. This has not been verified against
+Unitree documentation; if an accumulated floor or ceiling comes out
+consistently tilted while the robot is level, check this first.
 """
 
 from __future__ import annotations
@@ -94,13 +93,11 @@ def rotate_points(
 ) -> np.ndarray:
     """Rotate an ``(N, 3)`` array by ``quaternion`` given as ``(x, y, z, w)``.
 
-    Uses the standard vector form ``v' = v + 2w(q x v) + 2q x (q x v)``, which
-    is the same rotation a 3x3 matrix would give but costs about 15 flops per
-    point instead of 15 multiply-adds plus building the matrix -- worth it when
-    you are rotating one small scan at a time, thousands of times a second.
+    Uses the standard vector form ``v' = v + 2w(q x v) + 2q x (q x v)``,
+    which gives the same result as multiplying by
+    :func:`quaternion_to_matrix`.
 
-    Set ``normalize=False`` only if you have already normalised the quaternion
-    and are rotating in a hot loop.
+    Set ``normalize=False`` only if you have already normalised the quaternion.
     """
     points_xyz = np.asarray(points_xyz, dtype=np.float64)
     if points_xyz.ndim != 2 or points_xyz.shape[1] != 3:

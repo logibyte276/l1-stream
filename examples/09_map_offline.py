@@ -1,13 +1,13 @@
 """Look at the map a recording builds: KISS-ICP poses, optional map deskew, Open3D.
 
-    python examples/09_map_offline.py personal/B1_room_5m_slow.l1raw
-    python examples/09_map_offline.py personal/B1_room_5m_slow.l1raw --no-map-deskew
-    python examples/09_map_offline.py personal/B1_room_5m_slow.l1raw --compare
+    python examples/09_map_offline.py recordings/room.l1raw
+    python examples/09_map_offline.py recordings/room.l1raw --no-map-deskew
+    python examples/09_map_offline.py recordings/room.l1raw --compare
 
-No screen on the Orin? Build the map there, look at it anywhere:
+No screen on the robot's computer? Build the map there, look at it anywhere:
 
-    python examples/09_map_offline.py personal/B1_room_5m_slow.l1raw --save personal/B1 --no-show
-    python examples/09_map_offline.py --load personal/B1      # needs only numpy + open3d
+    python examples/09_map_offline.py recordings/room.l1raw --save maps/room --no-show
+    python examples/09_map_offline.py --load maps/room      # needs only numpy + open3d
 
 WHERE THE POSES COME FROM. The same replay() call 06_odometry_offline makes,
 with the same config flags, so a map that looks wrong means the odometry is
@@ -64,7 +64,7 @@ def parse_args(argv=None):
     p.add_argument("--compare", action="store_true",
                    help="Build the map with map deskew ON and OFF; press M to flip.")
     p.add_argument("--map-voxel", type=float, default=0.03,
-                   help="Map downsample, m. 0.03 matches 12_map_quality, so what you "
+                   help="Map downsample, m. 0.03 matches 11_map_quality, so what you "
                         "see is what gets measured.")
     p.add_argument("--point-size", type=float, default=2.0)
     p.add_argument("--save", metavar="PREFIX", default=None,
@@ -130,8 +130,8 @@ def load_saved(prefix):
 
 def build_maps(args, parser):
     if replay is None:
-        raise SystemExit("l1_stream is not importable here. Replay on the Orin with "
-                         "--save, then open it here with --load.")
+        raise SystemExit("l1_stream is not importable here. Replay where it is "
+                         "installed with --save, then open the result here with --load.")
     if not args.path:
         parser.error("give a recording to replay, or --load PREFIX")
     if args.map_voxel <= 0:

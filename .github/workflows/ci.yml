@@ -49,12 +49,16 @@ jobs:
           cache: pip
           cache-dependency-path: pyproject.toml
 
-      # [dev] only -- deliberately NOT [viz]. Open3D is a ~400 MB download that
+      # [dev,slam] -- deliberately NOT [viz]. Open3D is a ~400 MB download that
       # needs a display, and tests/test_visualizer.py stubs it out anyway.
       - run: pip install -e ".[dev,slam]"
 
       # -q and testpaths already come from [tool.pytest.ini_options].
+      # L1_NO_SKIPS turns any skipped test into a failure (see tests/conftest.py),
+      # so a missing dependency cannot produce a green run that tested nothing.
       - run: pytest
+        env:
+          L1_NO_SKIPS: "1"
 
   package:
     name: build sdist + wheel

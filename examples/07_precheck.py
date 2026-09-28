@@ -1,33 +1,31 @@
 """Pre-flight. Everything you should know about a rig BEFORE tuning odometry.
 
     # motors idle, car parked, record ~60 s:
-    python examples/07_precheck.py personal/stationary.l1raw
+    python examples/07_precheck.py recordings/stationary.l1raw
 
     # then spin the car in place ~360 deg and record again:
-    python examples/07_precheck.py personal/pivot.l1raw
+    python examples/07_precheck.py recordings/pivot.l1raw
 
     # the histogram, spectrum and tables behind the summary:
-    python examples/07_precheck.py personal/pivot.l1raw --verbose
+    python examples/07_precheck.py recordings/pivot.l1raw --verbose
 
-This absorbs what used to be three scripts -- 07_diagnostics, 10_selfhit and
-11_vibration. They were split by ANALYSIS (points / geometry / IMU), which is
-the wrong seam: all three answer the same question, "is this rig fit to tune
-on", and all three produce constants or go/no-go verdicts that
-06_odometry_offline then consumes. Nothing here runs odometry, on purpose --
-a script that CALIBRATES and a script that MEASURES must stay separate, or you
-cannot tell whether a moved number came from new data or a new constant.
+Every check here answers the same question -- "is this rig fit to tune on?" --
+and produces constants or go/no-go verdicts that 06_odometry_offline then
+uses. Nothing here runs odometry, on purpose: a script that CALIBRATES and a
+script that MEASURES stay separate, so you can tell whether a changed number
+came from new data or a new constant.
 
-THE CATCH THE OLD SPLIT HID: the checks need different recordings, and they
-CONTRADICT each other.
+The checks need different recordings, and those recordings are incompatible:
 
     self-hit radius   needs the car to ROTATE   (see below)
     IMU yaw drift     needs the car to SIT STILL
 
-Run one recording through the old scripts and half the output was quietly
-meaningless -- 07 would happily print "net yaw +38 deg, that is pure drift"
-from a pivot recording, where it is not drift at all, it is the pivot. So this
-script CLASSIFIES the recording first and runs only the checks that recording
-can support, then names the ones it skipped and what to record to get them.
+Yaw measured during a pivot is the pivot, not drift. So this script CLASSIFIES
+the recording first, runs only the checks that recording can support, and
+names the ones it skipped and what to record to get them. The sidecar's
+``kind`` (written by 05_record --kind) decides when present; otherwise the IMU
+yaw sweep does. Yaw alone cannot tell parked from a straight drive, so record
+with --kind whenever you can.
 
 WHY THE SELF-HIT TEST NEEDS A PIVOT. A range histogram cannot separate your
 chassis from the room: parked, a wall at 0.4 m and a motor mount at 0.4 m are
@@ -39,13 +37,12 @@ geometry. The near-range histogram is still printed on a pivot, where it
 finally becomes a useful confirming view rather than a Rorschach test.
 
 ON VIBRATION AND MOTORS. Idle motors contribute nothing, so a parked recording
-measures the LiDAR's own 11 Hz rotor and the mount's response to it -- which is
-most of the story. But it is not all of it: brushed 540s under load add
-commutator ripple and rotor imbalance, and a parked recording has never seen
-that. A pivot has both motors turning under load, so it measures shake in a
-condition closer to driving. That makes the pivot the better recording for
-BOTH of this script's headline numbers, which is the real reason these two
-analyses belong in one file.
+measures the LiDAR's own ~11 Hz rotor and the mount's response to it -- which
+is most of the story, but not all of it: drive motors under load add their own
+vibration, and a parked recording never sees that. A pivot has the motors
+turning under load, so it measures shake in a condition closer to driving.
+That makes the pivot the better recording for both of this script's headline
+numbers.
 """
 
 import argparse
@@ -54,6 +51,7 @@ from pathlib import Path
 import numpy as np
 
 from l1_stream.config import DEFAULTS
+from l1_stream.metadata import RecordingMeta
 from l1_stream.protocol import LidarIMU, LidarScan
 from l1_stream.recording import Replayer
 
@@ -65,9 +63,8 @@ p.add_argument("--az-bin", type=float, default=2.0, help="azimuth bin, degrees")
 p.add_argument("--min-obs", type=int, default=25, help="min samples per cell")
 p.add_argument("--static-std", type=float, default=0.03,
                help="range std below this = rigidly attached, metres")
-# Deliberately NOT called --max-range. That name already means the odometry
-# range gate, and one name for two different quantities is how this project
-# has burned itself before.
+# Deliberately NOT called --max-range: that name already means the odometry
+# range gate, and one flag name should not mean two different quantities.
 p.add_argument("--analysis-range", type=float, default=6.0,
                help="ignore returns beyond this for the self-hit test")
 p.add_argument("--spin-hz", type=float, default=11.0,
@@ -151,6 +148,18 @@ elif yaw_sweep <= args.static_deg:
     kind = "stationary"
 else:
     kind = "ambiguous"
+
+# The sidecar knows what the drive was; the yaw heuristic only guesses, and it
+# cannot tell a parked car from a straight drive.
+meta = RecordingMeta.load_or_none(args.path)
+kind_source = "from IMU yaw"
+if meta is not None and meta.kind:
+    guessed = kind
+    kind = "driving" if meta.kind in ("line", "loop") else meta.kind
+    kind_source = "from sidecar"
+    if kind in ("stationary", "pivot") and guessed not in (kind, "unknown"):
+        warnings.append(f"sidecar says {meta.kind!r} but the IMU yaw sweep looks "
+                        f"{guessed} -- check the recording")
 
 # --- [3] per-point time (a hard precondition for deskew) --------------------
 
@@ -297,8 +306,8 @@ if kind != "stationary":
 
 # --- report -----------------------------------------------------------------
 
-sweep = f"  (IMU yaw swept {yaw_sweep:.1f} deg)" if yaw_sweep is not None else ""
-print(f"{Path(args.path).name}   {duration:.1f} s   {kind.upper()}{sweep}")
+sweep = f", yaw swept {yaw_sweep:.1f} deg" if yaw_sweep is not None else ""
+print(f"{Path(args.path).name}   {duration:.1f} s   {kind.upper()}  ({kind_source}{sweep})")
 if kind == "ambiguous":
     warnings.insert(0, f"between --static-deg {args.static_deg} and --pivot-deg "
                        f"{args.pivot_deg}: re-record parked, or spin ~360 deg")

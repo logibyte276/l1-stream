@@ -2,7 +2,7 @@
 
     python examples/10_map_live.py
     python examples/10_map_live.py --compare                 # M flips map deskew
-    python examples/10_map_live.py --save personal/live1     # keep it on exit
+    python examples/10_map_live.py --save maps/live1         # keep it on exit
 
 The live counterpart of 09_map_offline: same odometry flags, same two deskews,
 and --save writes files 09_map_offline --load opens.
@@ -21,13 +21,13 @@ WHAT TO WATCH IN THE STATUS LINE
                keep up -- raise --map-voxel, drop --compare, or use --no-map-deskew.
 
 ONE THREAD, ON PURPOSE. Registration and drawing share the loop, so the window
-feels choppy while a frame registers (~50-100 ms on the Orin). A render thread
-would not fix it: KISS-ICP holds Python's GIL while it works.
+feels choppy while a frame registers (~40-90 ms on a Jetson Orin Nano). A
+render thread would not fix it: KISS-ICP holds Python's GIL while it works.
 
-It needs a screen on the machine running it. Open3D over ssh -X rarely works.
-Either plug a monitor into the Orin, or point the publisher at the laptop and
-run this there (it then needs kiss-icp on the laptop). The UDP port can only
-be read by one program, so this cannot run alongside 05_record.
+It needs a screen on the machine running it; Open3D over ssh -X rarely works.
+Either plug a monitor into the robot's computer, or point the publisher at a
+laptop and run this there (it then needs kiss-icp on the laptop). The UDP port
+can only be read by one program, so this cannot run alongside 05_record.
 
 KEYS   M  map deskew ON / OFF (--compare)   K  trajectory on / off
        F  follow the car                    X  clear the map
@@ -318,7 +318,7 @@ class LiveMapViewer:
         try:
             while True:
                 scans = self.stream.scans.drain()
-                imu = self.stream.imu.latest_n(500)
+                imu = self.stream.recent_imu(self.stream.imu_capacity)
                 if scans:
                     newest = scans[-1].stamp
                     self.ingest(scans, imu)
