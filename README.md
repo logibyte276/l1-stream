@@ -79,7 +79,7 @@ Then create `/etc/udev/rules.d/99-robot-serial.rules`:
 ```
 # Replace the IDs with what udevadm printed for YOUR devices.
 SUBSYSTEM=="tty", ATTRS{idVendor}=="10c4", ATTRS{idProduct}=="ea60", ATTRS{serial}=="0001", SYMLINK+="lidar"
-SUBSYSTEM=="tty", ATTRS{idVendor}=="1a86", ATTRS{idProduct}=="7523", ATTRS{serial}=="mcu"
+SUBSYSTEM=="tty", ATTRS{idVendor}=="1a86", ATTRS{idProduct}=="7523", SYMLINK+="mcu"
 ```
 
 ```bash
@@ -102,6 +102,15 @@ Get the `KERNELS` value from the `looking at parent device` lines of the same
 
 ## Install
 
+From a tagged release:
+
+```bash
+pip install "l1-stream @ git+https://github.com/logibyte276/l1-stream@v0.2.0"
+pip install "l1-stream[viz,slam] @ git+https://github.com/logibyte276/l1-stream@v0.2.0"   # with extras
+```
+
+From source, for development:
+
 ```bash
 git clone https://github.com/logibyte276/l1-stream.git
 cd l1-stream
@@ -112,8 +121,7 @@ pip install -e ".[dev]"     # + pytest, scipy, ruff
 pip install -e ".[slam]"    # + kiss-icp, for the odometry pipeline
 ```
 
-The odometry tests **skip** without the `[slam]` extra — see
-[Development](#development).
+The odometry tests **skip** without the `[slam]` extra — see Development below.
 
 ### On aarch64 (Jetson): Python 3.10 and numpy<2
 
@@ -205,7 +213,7 @@ l1-monitor --port 12345              # throughput + drop counters
 l1-visualize --max-scans 200         # live Open3D window
 ```
 
-`examples/` is numbered in the order you actually use it. **01–04** cover the
+[`examples/`](https://github.com/logibyte276/l1-stream/tree/main/examples) is numbered in the order you actually use it. **01–04** cover the
 library itself and need no odometry; `04_offline_replay.py` needs no hardware at
 all. **05–08** are the recording-and-odometry workflow, described next;
 **09–10** draw the map that odometry builds, offline and live; **12** measures
@@ -253,7 +261,7 @@ and names what it skipped rather than printing a meaningless number.
 
 ### One config, enforced
 
-Every tuned constant lives in **`src/l1_stream/config.py`** and nowhere else.
+Every tuned constant lives in **[`src/l1_stream/config.py`](https://github.com/logibyte276/l1-stream/blob/main/src/l1_stream/config.py)** and nowhere else.
 `FrameAssembler` and `KissOdometry` take their signature defaults from it, so
 constructing either one bare gives the tuned configuration.
 
@@ -263,8 +271,8 @@ DEFAULTS = {
     "rotate_with_imu":   True,   # ESSENTIAL: 32-126x worse on loop closure without
     "voxel_size":        0.15,   # 0.10 also real-time viable; 0.15 keeps margin
     "max_range":         25.0,   # trimming to 10 measurably hurt rotation
-    "min_range":         0.25,   # chassis measured at 0.2 m radius, plus margin
-    "deskew":            False,  # UNRESOLVED -- see Known limitations
+    "min_range":         0.25,   # clears the measured 0.19 m self-hit radius
+    "deskew":            True,   # evidence is mixed -- see Known limitations
     "initial_threshold": 0.4,    # adaptive settles at 0.32-0.55
 }
 ```
@@ -277,7 +285,7 @@ This is **enforced, not merely documented**. `tests/test_config.py` fails if a
 signature default drifts from `config.py`, or if any example writes a literal
 number for a tuned parameter — including as an `argparse` default.
 
-Why it needs enforcing: four scripts each grew their own copy of these constants
+Why it needs enforcing: several scripts each grew their own copy of these constants
 and drifted apart. `08_odometry_live.py` — the one that drives the actual car —
 ran `voxel 0.25 / min_range 0.40 / deskew on` for weeks after tuning had moved
 all three. Every copy looked plausible in isolation, and their outputs looked
@@ -297,8 +305,8 @@ comparable when they were not.
 - Frames must be **disjoint**. Overlapping frames bias ICP toward zero motion,
   because the shared points already align at zero displacement.
 
-These are version-specific, which is why `[slam]` should pin narrowly rather
-than accept any 1.x.
+These are version-specific, which is why `[slam]` pins `kiss-icp>=1.3,<1.4`
+rather than accepting any 1.x.
 
 ---
 
@@ -316,6 +324,9 @@ than accept any 1.x.
 | `frames.py` | `FrameAssembler`: disjoint frames with per-point timestamps. |
 | `odometry.py` | `KissOdometry`: frame in, pose out. |
 | `offline.py` | `replay()`: the one implementation of "run a recording through the pipeline". |
+| `metadata.py` | `RecordingMeta`: JSON sidecar next to each recording (kind, truth distance, method, speed, environment, software provenance). |
+| `results.py` | `ResultsLog`: append-only CSV, one row per replay, header grows to fit. |
+| `mapmetrics.py` | Map accuracy against the building: RANSAC plane fits, wall flatness, corner angles. |
 | `visualizer.py` | `LiveVisualizer`. Lazily imports Open3D. |
 | `cli.py` | `l1-monitor`, `l1-visualize`. |
 
@@ -330,6 +341,8 @@ and `frames.py` have no I/O at all and are fully covered by tests.
 
   101  IMU   "=dI4f3f3f"                 → 52 bytes
   102  Scan  "=dII" + 120 × "fffffI"     → 2896 bytes
+
+  (payload sizes; add the 8-byte header for the datagram)
 ```
 
 **Quaternions are `(x, y, z, w)` — scalar LAST**, matching `float quaternion[4];
@@ -451,40 +464,6 @@ check `l1-monitor` for a `dataSize` warning and consider a jumbo-frame MTU.
 
 ---
 
-## Known limitations
-
-- **Straight-line odometry reads ~5% short.** The two drives with a hard physical
-  stop agree closely: 5 m reads 4.72 (−5.6%), 7 m reads 6.64 (−5.1%). It is a
-  genuine multiplicative error, not a fixed offset. **Unresolved: whether the loss
-  is per metre** (a true scale error, which one calibration factor would fix) **or
-  per frame** (which it would not — the correction would then depend on speed).
-  No scale factor is applied anywhere; the raw estimate is what you get.
-- **Loop closure is blind to this.** A uniform shortfall cancels exactly around a
-  symmetric loop. A straight line measures scale; a loop measures heading. They
-  are not substitutes, and a good loop-closure number is not evidence of good
-  scale.
-- **Deskew does not replicate.** Measured better OFF in a room and on a loop,
-  better ON in a bare hallway. It is defaulted OFF because that is where the first
-  two measurements pointed — treat it as a coin the evidence has not landed on,
-  and run both ways.
-- **The IMU→LiDAR extrinsic is assumed to be identity.** The accumulator applies
-  the IMU quaternion directly to point coordinates, which is only exactly right
-  if the IMU axes and point cloud axes coincide inside the sensor. This has never
-  been measured. Symptom if an offset does exist: the accumulated floor plane
-  comes out consistently tilted while the robot is level.
-- **Yaw is unobservable.** The L1's IMU is 6-axis, so it has no heading
-  reference and yaw drifts (~1.9°/min measured). Roll and pitch are
-  gravity-referenced and do not.
-- **`drop_zero_returns` is on by default** in the accumulator, on the reasoning
-  that a return at exactly (0,0,0) is the sensor origin and therefore never real
-  geometry. Whether the L1 emits them at all is unverified; the filter is
-  harmless either way.
-- The Open3D window path is **not covered by tests** — it needs a display. Every
-  non-GUI path is. On a Jetson the GUI additionally needs full OpenGL, which is
-  not available over a plain SSH session.
-
----
-
 ## Development
 
 ```bash
@@ -506,12 +485,11 @@ and both fail *silently* by skipping:
   the entire SLAM pipeline goes untested.
 
 Skips are reported in the pytest summary. A run that should be all-pass and shows
-`N skipped` means that many checks did not execute. **CI currently installs only
-`.[dev]`**, so the kiss-icp tests are skipping there — worth fixing in `ci.yml`
-before trusting a green badge on odometry changes.
+`N skipped` means that many checks did not execute. CI installs `.[dev,slam]`,
+so the odometry tests run there too.
 
-On aarch64, set `PIP_CONSTRAINT` before installing (see [Install](#install)) or
-the dev install can pull numpy 2 and break the `[viz]` extra.
+On aarch64, set `PIP_CONSTRAINT` before installing (see the Jetson notes under
+Install) or the dev install can pull numpy 2 and break the `[viz]` extra.
 
 CI runs ruff on 3.12, pytest on 3.10/3.11/3.12, and a `python -m build` +
 `twine check` packaging job. The Jetson deployment constraints (Python 3.10,
@@ -520,4 +498,4 @@ x86_64 the `[viz]` extra is unconstrained.
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT — see [LICENSE](https://github.com/logibyte276/l1-stream/blob/main/LICENSE).
