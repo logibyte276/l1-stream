@@ -208,10 +208,10 @@ class LiveMapViewer:
         self.vis.add_geometry(self.marker, reset_bounding_box=False)
         self.vis.get_render_option().point_size = args.point_size
         ctr = self.vis.get_view_control()
-        ctr.set_lookat([0.0, 0.0, 0.0])
-        ctr.set_front([-0.5, -0.5, 0.7])
-        ctr.set_up([0.0, 0.0, 1.0])
-        ctr.set_zoom(0.4)
+        ctr.set_lookat([0, 0, 1.5])
+        ctr.set_front([0, -1, 0.3])
+        ctr.set_up([0, 0, 1])
+        ctr.set_zoom(2)
 
         for key, fn in (("M", self.key_map), ("K", self.key_traj),
                         ("F", self.key_follow), ("X", self.key_clear)):
