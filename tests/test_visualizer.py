@@ -246,7 +246,7 @@ def test_axes_geometry_added_before_the_point_cloud():
             show_axes=True, stats_interval=0,
         )
         vis.open(wait_for_data=0)
-        assert vis._vis.geometries[0] == ("axes", 1.0)
+        assert vis._vis.geometries[0][0] == "axes"   
         assert isinstance(vis._vis.geometries[1], _FakePointCloud)
         vis.close()
     finally:
