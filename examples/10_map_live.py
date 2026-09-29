@@ -197,7 +197,7 @@ class LiveMapViewer:
                              "into this machine, or point the publisher at one that has a "
                              "screen and run this there.")
         # Something with real extent first, so the camera does not fit an empty box.
-        self.vis.add_geometry(o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.5))
+        self.vis.add_geometry(o3d.geometry.TriangleMesh.create_coordinate_frame(size=2.0))
         self.pcd = o3d.geometry.PointCloud()
         self.vis.add_geometry(self.pcd, reset_bounding_box=False)
         self.line = o3d.geometry.LineSet()
