@@ -95,7 +95,7 @@ class LiveVisualizer:
         max_time_gap: float = 0.01,
         refresh_hz: float = 30.0,
         show_axes: bool = True,
-        axes_size: float = 1.0,
+        axes_size: float = 2.0,
         point_size: float = 2.0,
         background_color: Any | None = None,
         stats_interval: float = 1.0,
