@@ -183,7 +183,7 @@ Accumulate and de-rotate a rolling window:
 ```python
 from l1_stream import LidarStream, RotatedScanAccumulator
 
-acc = RotatedScanAccumulator(max_scans=150, max_time_gap=0.01)
+acc = RotatedScanAccumulator(max_scans=180, max_time_gap=0.01)
 with LidarStream.for_history(2.0) as lidar:
     while True:
         acc.update(lidar)
@@ -203,14 +203,14 @@ Live view:
 
 ```python
 from l1_stream.visualizer import LiveVisualizer
-LiveVisualizer(max_scans=150, refresh_hz=30).run()
+LiveVisualizer(max_scans=180, refresh_hz=30).run()
 ```
 
 Command line:
 
 ```bash
 l1-monitor --port 12345              # throughput + drop counters
-l1-visualize --max-scans 200         # live Open3D window
+l1-visualize --max-scans 180         # ~1 s of scans on screen
 ```
 
 [`examples/`](https://github.com/logibyte276/l1-stream/tree/main/examples) is numbered in the order you actually use it. **01–04** cover the
