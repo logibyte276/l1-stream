@@ -8,6 +8,7 @@ authors:
     orcid: "https://orcid.org/0009-0007-1910-719X"
 version: 1.0.0
 license: MIT
+doi: 10.5281/zenodo.23053510
 repository-code: "https://github.com/logibyte276/l1-stream"
 abstract: >-
   A Python UDP client for the Unitree L1 LiDAR: packet parsing, thread-safe
