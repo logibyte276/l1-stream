@@ -6,7 +6,6 @@
 
 [![PyPI](https://img.shields.io/pypi/v/l1-stream)](https://pypi.org/project/l1-stream/)
 
-
 A Python client for a **Unitree L1 LiDAR** streamed over UDP: packet parsing,
 thread-safe buffering, IMU-based orientation compensation, an optional live
 Open3D view, and — on top of that — wire-level recording/replay and **KISS-ICP
