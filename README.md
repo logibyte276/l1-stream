@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/logibyte276/l1-stream/actions/workflows/ci.yml/badge.svg)](https://github.com/logibyte276/l1-stream/actions/workflows/ci.yml)
 
-[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.23053509.svg)(https://doi.org/10.5281/zenodo.23053509)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.23053509.svg)](https://doi.org/10.5281/zenodo.23053509)
 
 [![PyPI](https://img.shields.io/pypi/v/l1-stream)](https://pypi.org/project/l1-stream/)
 
