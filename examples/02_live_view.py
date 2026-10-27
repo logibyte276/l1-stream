@@ -12,5 +12,5 @@ logging.basicConfig(level=logging.INFO, format="%(message)s")
 LiveVisualizer(
     max_scans=180,      # Unitree L1 is 180 Hz.
     refresh_hz=30.0,
-    point_size=2.0,
+    point_size=4.0,
 ).run()

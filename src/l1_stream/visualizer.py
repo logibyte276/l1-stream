@@ -201,7 +201,7 @@ class LiveVisualizer:
             opt.background_color = np.asarray(self.background_color, dtype=np.float64)
 
         ctr = self._vis.get_view_control()
-        ctr.set_lookat([0.0, 0.0, 1.5])
+        ctr.set_lookat([0.0, 0.0, 0.7])
         ctr.set_front([0.0, -1.0, 0.3])
         ctr.set_up([0.0, 0.0, 1.0])
         ctr.set_zoom(2.0)
