@@ -507,7 +507,7 @@ def figures(out: Path, figs: dict, rev_dir: Path) -> list[str]:
     import matplotlib.pyplot as plt
 
     made = []
-    plt.rcParams.update({"font.family": "serif", "font.size": 9})
+    plt.rcParams.update({"font.family": "Times New Roman", "font.size": 9})
     traces = figs.get("traces")
     if traces:
         fig, (a1, a2) = plt.subplots(1, 2, figsize=(7.2, 3.0))
@@ -521,9 +521,9 @@ def figures(out: Path, figs: dict, rev_dir: Path) -> list[str]:
             a1.plot(t - dec["t_on"], dec["along"], color=cmap((d - 1) / 5), lw=1.2,
                     label=f"{d} m")
         a1.set_xlabel("time from start of motion (s)")
-        a1.set_ylabel("estimated along-track position (m)")
+        a1.set_ylabel("estimated position along drive direction (m)")
         a1.legend(frameon=False, fontsize=7, title="drive", title_fontsize=7)
-        a1.set_title("(a) pose traces", loc="left", fontsize=9)
+        a1.set_title("a", loc="left", fontweight="bold", fontsize=10)
         for r in "abcde":
             run = f"D5{r}"
             if run not in traces:
@@ -537,7 +537,7 @@ def figures(out: Path, figs: dict, rev_dir: Path) -> list[str]:
         a2.set_xlabel("time from end of motion (s)")
         a2.set_ylabel("position − final position (cm)")
         a2.legend(frameon=False, fontsize=7)
-        a2.set_title("(b) the stop, 5 m drives", loc="left", fontsize=9)
+        a2.set_title("b", loc="left", fontweight="bold", fontsize=10)
         fig.tight_layout()
         fig.savefig(out / "fig_R1_traces.png", dpi=300)
         plt.close(fig)
